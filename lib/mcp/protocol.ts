@@ -1,6 +1,8 @@
 import { getClientsWithLatestSignals, getSessions } from "@/lib/db/queries";
 
 export const MCP_PROTOCOL_VERSION = "2026-07-28";
+export const MCP_COMPAT_PROTOCOL_VERSION = "2025-11-25";
+export const MCP_SUPPORTED_PROTOCOL_VERSIONS = [MCP_PROTOCOL_VERSION, MCP_COMPAT_PROTOCOL_VERSION] as const;
 export const MCP_SCOPE = "cimd:read";
 export const MCP_ACCESS_TOKEN = "test-access-token";
 
@@ -120,6 +122,33 @@ function getRequestMeta(request: JsonRpcRequest) {
   return request.params?._meta as Record<string, unknown> | undefined;
 }
 
+function getParamsProtocolVersion(request: JsonRpcRequest) {
+  const protocolVersion = request.params?.protocolVersion;
+  return typeof protocolVersion === "string" ? protocolVersion : undefined;
+}
+
+function getMetaProtocolVersion(request: JsonRpcRequest) {
+  const protocolVersion = getRequestMeta(request)?.["io.modelcontextprotocol/protocolVersion"];
+  return typeof protocolVersion === "string" ? protocolVersion : undefined;
+}
+
+function getRequestedProtocolVersions(httpRequest: Request, rpcRequest: JsonRpcRequest) {
+  return [
+    httpRequest.headers.get("mcp-protocol-version") ?? undefined,
+    getParamsProtocolVersion(rpcRequest),
+    getMetaProtocolVersion(rpcRequest)
+  ].filter((version): version is string => typeof version === "string" && version.length > 0);
+}
+
+function isSupportedProtocolVersion(version: string) {
+  return MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(version as (typeof MCP_SUPPORTED_PROTOCOL_VERSIONS)[number]);
+}
+
+function negotiatedProtocolVersion(httpRequest: Request, rpcRequest: JsonRpcRequest) {
+  const requested = getRequestedProtocolVersions(httpRequest, rpcRequest);
+  return requested.find(isSupportedProtocolVersion) ?? MCP_PROTOCOL_VERSION;
+}
+
 function sourceNameForRequest(request: JsonRpcRequest) {
   if (request.method === "tools/call" || request.method === "prompts/get") {
     return typeof request.params?.name === "string" ? request.params.name : null;
@@ -134,15 +163,14 @@ function validateRequiredHeaders(httpRequest: Request, rpcRequest: JsonRpcReques
   const protocolHeader = httpRequest.headers.get("mcp-protocol-version");
   const methodHeader = httpRequest.headers.get("mcp-method");
   const nameHeader = httpRequest.headers.get("mcp-name");
-  const meta = getRequestMeta(rpcRequest);
-  const metaProtocol = meta?.["io.modelcontextprotocol/protocolVersion"];
+  const bodyProtocol = rpcRequest.method === "initialize" ? getParamsProtocolVersion(rpcRequest) : getMetaProtocolVersion(rpcRequest);
 
   if (!protocolHeader) return "Header mismatch: MCP-Protocol-Version header is missing";
   if (protocolHeader !== MCP_PROTOCOL_VERSION) {
     return null;
   }
-  if (metaProtocol !== protocolHeader) {
-    return `Header mismatch: MCP-Protocol-Version header value '${protocolHeader}' does not match request _meta protocolVersion`;
+  if (bodyProtocol !== protocolHeader) {
+    return `Header mismatch: MCP-Protocol-Version header value '${protocolHeader}' does not match request protocolVersion`;
   }
   if (!methodHeader) return "Header mismatch: Mcp-Method header is missing";
   if (methodHeader !== rpcRequest.method) {
@@ -161,27 +189,27 @@ function validateRequiredHeaders(httpRequest: Request, rpcRequest: JsonRpcReques
 }
 
 function validateProtocolVersion(httpRequest: Request, request: JsonRpcRequest) {
-  const protocolHeader = httpRequest.headers.get("mcp-protocol-version");
-  if (protocolHeader && protocolHeader !== MCP_PROTOCOL_VERSION) {
+  const requestedVersions = getRequestedProtocolVersions(httpRequest, request);
+  const unsupportedVersion = requestedVersions.find((version) => !isSupportedProtocolVersion(version));
+
+  if (unsupportedVersion) {
     return {
       code: -32022,
-      message: `Unsupported protocol version '${protocolHeader}'`,
+      message: `Unsupported protocol version '${unsupportedVersion}'`,
       data: {
-        supported: [MCP_PROTOCOL_VERSION],
-        requested: protocolHeader
+        supported: MCP_SUPPORTED_PROTOCOL_VERSIONS,
+        requested: unsupportedVersion
       }
     };
   }
 
-  const metaProtocol = getRequestMeta(request)?.["io.modelcontextprotocol/protocolVersion"];
-  if (metaProtocol === MCP_PROTOCOL_VERSION) return null;
+  if (requestedVersions.length > 0) return null;
 
   return {
     code: -32022,
-    message: `Unsupported protocol version '${String(metaProtocol)}'`,
+    message: "Missing protocol version",
     data: {
-      supported: [MCP_PROTOCOL_VERSION],
-      requested: String(metaProtocol)
+      supported: MCP_SUPPORTED_PROTOCOL_VERSIONS
     }
   };
 }
@@ -195,7 +223,8 @@ async function handleToolCall(id: JsonRpcId, baseUrl: string, params: Record<str
       mcpEndpoint: mcpResourceUrl(baseUrl),
       protectedResourceMetadata: protectedResourceMetadataUrl(baseUrl),
       authorizationServerMetadata: `${baseUrl}/.well-known/oauth-authorization-server`,
-      protocolVersion: MCP_PROTOCOL_VERSION
+      protocolVersion: MCP_PROTOCOL_VERSION,
+      supportedProtocolVersions: MCP_SUPPORTED_PROTOCOL_VERSIONS
     };
     return resultJson(id, {
       resultType: "complete",
@@ -250,11 +279,20 @@ export async function handleMcpRequest(httpRequest: Request, body: JsonRpcReques
   if (body.method === "server/discover") {
     return resultJson(body.id, {
       resultType: "complete",
-      supportedVersions: [MCP_PROTOCOL_VERSION],
+      supportedVersions: MCP_SUPPORTED_PROTOCOL_VERSIONS,
       capabilities: { tools: { listChanged: false } },
       instructions: "Use this server to inspect CIMD/OAuth behavior captured by the public dashboard.",
       ttlMs: 300000,
       cacheScope: "public"
+    });
+  }
+
+  if (body.method === "initialize") {
+    return resultJson(body.id, {
+      protocolVersion: negotiatedProtocolVersion(httpRequest, body),
+      capabilities: { tools: { listChanged: false } },
+      serverInfo,
+      instructions: "Use this server to inspect CIMD/OAuth behavior captured by the public dashboard."
     });
   }
 
