@@ -1,19 +1,7 @@
 import { db, client } from "../lib/db";
-import { cimdValidationResults, mcpClients, oauthAttempts, validationSessions } from "../lib/db/schema";
+import { mcpClients } from "../lib/db/schema";
 
 const now = new Date().toISOString();
-
-const vscodeMetadata = {
-  client_name: "Visual Studio Code",
-  logo_uri: "https://code.visualstudio.com/assets/branding/code-stable.png",
-  grant_types: ["authorization_code", "refresh_token", "urn:ietf:params:oauth:grant-type:device_code"],
-  response_types: ["code"],
-  token_endpoint_auth_method: "none",
-  application_type: "native",
-  client_id: "https://vscode.dev/oauth/client-metadata.json",
-  client_uri: "https://vscode.dev/product",
-  redirect_uris: ["http://127.0.0.1:33418/", "https://vscode.dev/redirect"]
-};
 
 const clients = [
   {
@@ -21,10 +9,10 @@ const clients = [
     name: "Visual Studio Code",
     category: "IDE",
     vendor: "Microsoft",
-    supportStatus: "verified",
-    metadataUrl: "https://vscode.dev/oauth/client-metadata.json",
-    sourceUrl: "https://vscode.dev/oauth/client-metadata.json",
-    notes: "Seeded as verified: client_id matches the metadata document URL and redirect URIs include the requested VS Code callbacks."
+    supportStatus: "unknown",
+    metadataUrl: null,
+    sourceUrl: null,
+    notes: "Placeholder until a real VS Code OAuth flow confirms CIMD, DCR, static, or unknown behavior."
   },
   {
     id: "claude-code",
@@ -54,59 +42,7 @@ async function main() {
       });
   }
 
-  const sessionId = "seed-vscode";
-  const attemptId = "seed-vscode-authorize";
-
-  await db
-    .insert(validationSessions)
-    .values({ id: sessionId, label: "Seeded VS Code CIMD pass", createdAt: now })
-    .onConflictDoNothing();
-
-  await db
-    .insert(oauthAttempts)
-    .values({
-      id: attemptId,
-      sessionId,
-      createdAt: now,
-      path: "/authorize",
-      method: "GET",
-      clientId: "https://vscode.dev/oauth/client-metadata.json",
-      redirectUri: "http://127.0.0.1:33418/",
-      responseType: "code",
-      scope: "openid profile offline_access",
-      state: "seed",
-      resource: null,
-      codeChallenge: "seed-code-challenge",
-      codeChallengeMethod: "S256",
-      userAgent: "seed-data",
-      classification: "cimd",
-      rawQueryJson: JSON.stringify({
-        client_id: "https://vscode.dev/oauth/client-metadata.json",
-        redirect_uri: "http://127.0.0.1:33418/",
-        response_type: "code",
-        state: "seed"
-      }),
-      rawBodyJson: null
-    })
-    .onConflictDoNothing();
-
-  await db
-    .insert(cimdValidationResults)
-    .values({
-      id: "seed-vscode-validation",
-      attemptId,
-      metadataUrl: "https://vscode.dev/oauth/client-metadata.json",
-      metadataFetchSuccess: 1,
-      metadataHttpStatus: 200,
-      metadataValid: 1,
-      validationErrors: JSON.stringify([]),
-      validationWarnings: JSON.stringify([]),
-      rawMetadataJson: JSON.stringify(vscodeMetadata, null, 2),
-      createdAt: now
-    })
-    .onConflictDoNothing();
-
-  console.log(`Seeded ${clients.length} clients and VS Code validation sample.`);
+  console.log(`Seeded ${clients.length} client cards.`);
 }
 
 main()

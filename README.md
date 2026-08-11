@@ -91,14 +91,12 @@ The CIMD metadata fetcher:
 
 ## Seed Data
 
-The seed script creates cards for:
+The seed script creates placeholder cards for:
 
-- Visual Studio Code, marked verified with `https://vscode.dev/oauth/client-metadata.json`.
+- Visual Studio Code.
 - Claude Code.
 - MCPJam.
 - Cursor.
 - Codex CLI.
 - GitHub Copilot.
 - Windsurf.
-
-It also creates a seeded VS Code CIMD validation pass so the dashboard has one complete example before live traffic is captured.
