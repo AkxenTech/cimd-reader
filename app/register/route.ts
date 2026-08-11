@@ -12,6 +12,17 @@ export async function POST(request: NextRequest) {
   const { raw } = await requestBodyToRecord(request);
   const rawRecord = raw as Record<string, unknown>;
   const sessionId = url.searchParams.get("session_id") ?? crypto.randomUUID();
+  const redirectUris = Array.isArray(rawRecord.redirect_uris) && rawRecord.redirect_uris.every((item) => typeof item === "string")
+    ? rawRecord.redirect_uris
+    : [];
+  const responseTypes = Array.isArray(rawRecord.response_types) && rawRecord.response_types.every((item) => typeof item === "string")
+    ? rawRecord.response_types
+    : ["code"];
+  const grantTypes = Array.isArray(rawRecord.grant_types) && rawRecord.grant_types.every((item) => typeof item === "string")
+    ? rawRecord.grant_types
+    : ["authorization_code", "refresh_token"];
+  const scope = typeof rawRecord.scope === "string" ? rawRecord.scope : "cimd:read";
+  const clientName = typeof rawRecord.client_name === "string" ? rawRecord.client_name : "DCR test client";
 
   await ensureSession(sessionId, "Dynamic Client Registration");
   await db.insert(oauthAttempts).values({
@@ -21,9 +32,9 @@ export async function POST(request: NextRequest) {
     path: "/register",
     method: request.method,
     clientId: "dcr-test-client-id",
-    redirectUri: Array.isArray(rawRecord.redirect_uris) ? rawRecord.redirect_uris.join(", ") : null,
-    responseType: Array.isArray(rawRecord.response_types) ? rawRecord.response_types.join(" ") : null,
-    scope: null,
+    redirectUri: redirectUris.length ? redirectUris.join(", ") : null,
+    responseType: responseTypes.join(" "),
+    scope,
     state: null,
     resource: null,
     codeChallenge: null,
@@ -37,7 +48,13 @@ export async function POST(request: NextRequest) {
   return NextResponse.json({
     client_id: "dcr-test-client-id",
     client_id_issued_at: 1710000000,
-    token_endpoint_auth_method: "none"
+    client_name: clientName,
+    redirect_uris: redirectUris,
+    grant_types: grantTypes,
+    response_types: responseTypes,
+    token_endpoint_auth_method: "none",
+    application_type: typeof rawRecord.application_type === "string" ? rawRecord.application_type : "native",
+    scope
   });
 }
 
