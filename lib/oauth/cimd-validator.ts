@@ -155,6 +155,32 @@ function asStringArray(value: unknown) {
   return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : null;
 }
 
+function isLoopbackHostname(hostname: string) {
+  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
+}
+
+function redirectUriMatches(registeredUri: string, requestedRedirectUri: string) {
+  if (registeredUri === requestedRedirectUri) return true;
+
+  try {
+    const registered = new URL(registeredUri);
+    const requested = new URL(requestedRedirectUri);
+    const registeredHasExplicitPort = registered.port !== "";
+
+    return (
+      registered.protocol === requested.protocol &&
+      isLoopbackHostname(registered.hostname) &&
+      isLoopbackHostname(requested.hostname) &&
+      registered.pathname === requested.pathname &&
+      registered.search === requested.search &&
+      registered.hash === requested.hash &&
+      !registeredHasExplicitPort
+    );
+  } catch {
+    return false;
+  }
+}
+
 export async function validateCimdDocument(clientId: string, requestedRedirectUri: string | null): Promise<CimdValidationResultInput> {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -186,7 +212,7 @@ export async function validateCimdDocument(clientId: string, requestedRedirectUr
     const redirectUris = asStringArray(parsed.redirect_uris);
     if (!redirectUris) {
       errors.push("metadata.redirect_uris must be an array of strings");
-    } else if (requestedRedirectUri && !redirectUris.includes(requestedRedirectUri)) {
+    } else if (requestedRedirectUri && !redirectUris.some((redirectUri) => redirectUriMatches(redirectUri, requestedRedirectUri))) {
       errors.push("requested redirect_uri is not listed in metadata.redirect_uris");
     }
 

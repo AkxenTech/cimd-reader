@@ -44,6 +44,18 @@ function registeredClientName(attempt: OAuthAttempt) {
   return typeof body?.client_name === "string" ? body.client_name : null;
 }
 
+function validationMetadataName(attempt: OAuthAttempt, results: (typeof cimdValidationResults.$inferSelect)[]) {
+  const result = results.find((item) => item.attemptId === attempt.id);
+  if (!result?.rawMetadataJson) return null;
+
+  try {
+    const metadata = JSON.parse(result.rawMetadataJson) as Record<string, unknown>;
+    return typeof metadata.client_name === "string" ? metadata.client_name : null;
+  } catch {
+    return null;
+  }
+}
+
 function dcrAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient) {
   if (attempt.path !== "/register") return false;
   const name = normalize(registeredClientName(attempt));
@@ -52,9 +64,17 @@ function dcrAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient) {
   return clientAliases(client).some((alias) => name === alias || name.includes(alias) || alias.includes(name));
 }
 
-function directAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient) {
+function cimdAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient, results: (typeof cimdValidationResults.$inferSelect)[]) {
+  if (attempt.classification !== "cimd") return false;
+  const normalizedClientId = normalize(attempt.clientId);
+  const metadataName = normalize(validationMetadataName(attempt, results));
+
+  return clientAliases(client).some((alias) => normalizedClientId.includes(alias) || metadataName === alias || metadataName.includes(alias));
+}
+
+function directAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient, results: (typeof cimdValidationResults.$inferSelect)[]) {
   const directIds = [client.id, client.metadataUrl].filter(Boolean);
-  return directIds.includes(attempt.clientId);
+  return directIds.includes(attempt.clientId) || cimdAttemptMatchesClient(attempt, client, results);
 }
 
 function observedBehavior(attempt: OAuthAttempt | null) {
@@ -102,7 +122,7 @@ export async function getClientDetail(id: string) {
 }
 
 function observedSignalsForClient(client: McpClient, attempts: OAuthAttempt[], results: (typeof cimdValidationResults.$inferSelect)[]) {
-  const matchingAttempts = attempts.filter((attempt) => directAttemptMatchesClient(attempt, client) || dcrAttemptMatchesClient(attempt, client));
+  const matchingAttempts = attempts.filter((attempt) => directAttemptMatchesClient(attempt, client, results) || dcrAttemptMatchesClient(attempt, client));
   const latestAttempt = matchingAttempts[0] ?? null;
   const latestValidation = matchingAttempts.length
     ? results.find((result) => matchingAttempts.some((attempt) => attempt.id === result.attemptId)) ?? null
