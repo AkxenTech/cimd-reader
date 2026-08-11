@@ -123,7 +123,8 @@ export async function getClientDetail(id: string) {
 
 function observedSignalsForClient(client: McpClient, attempts: OAuthAttempt[], results: (typeof cimdValidationResults.$inferSelect)[]) {
   const matchingAttempts = attempts.filter((attempt) => directAttemptMatchesClient(attempt, client, results) || dcrAttemptMatchesClient(attempt, client));
-  const latestAttempt = matchingAttempts[0] ?? null;
+  const behaviorAttempts = matchingAttempts.filter((attempt) => attempt.path === "/register" || attempt.classification);
+  const latestAttempt = behaviorAttempts[0] ?? matchingAttempts[0] ?? null;
   const latestValidation = matchingAttempts.length
     ? results.find((result) => matchingAttempts.some((attempt) => attempt.id === result.attemptId)) ?? null
     : null;
