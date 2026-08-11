@@ -67,6 +67,7 @@ export default async function DashboardPage() {
           const metadata = parseRawMetadata(client.latestValidation?.rawMetadataJson) ?? {};
           const displayName = typeof metadata.client_name === "string" ? metadata.client_name : client.name;
           const logo = typeof metadata.logo_uri === "string" ? metadata.logo_uri : null;
+          const metadataUrl = client.metadataUrl ?? client.latestValidation?.metadataUrl ?? (client.latestAttempt?.classification === "cimd" ? client.latestAttempt.clientId : null);
 
           return (
             <Link
@@ -111,7 +112,7 @@ export default async function DashboardPage() {
                 </div>
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Metadata URL</dt>
-                  <dd className="mt-1 break-all font-mono text-xs text-slate-700">{client.metadataUrl ?? "Unknown"}</dd>
+                  <dd className="mt-1 break-all font-mono text-xs text-slate-700">{metadataUrl ?? "Unknown"}</dd>
                 </div>
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Client URI</dt>

@@ -49,6 +49,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   const metadata = metadataObject(latestValidation?.rawMetadataJson);
   const errors = parseJsonArray(latestValidation?.validationErrors);
   const warnings = parseJsonArray(latestValidation?.validationWarnings);
+  const metadataUrl = client.metadataUrl ?? latestValidation?.metadataUrl ?? (latestAttempt?.classification === "cimd" ? latestAttempt.clientId : null);
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
@@ -71,7 +72,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
         <dl className="mt-6 grid gap-4 md:grid-cols-2">
           <Field label="Observed evidence" value={observedEvidence} />
           <Field label="Observed at" value={observedAt} />
-          <Field label="Metadata URL" value={client.metadataUrl} />
+          <Field label="Metadata URL" value={metadataUrl} />
           <Field label="Vendor" value={client.vendor} />
           <Field label="Source URL" value={client.sourceUrl} />
           <Field label="Claimed status" value={client.supportStatus.replace("_", " ")} />
