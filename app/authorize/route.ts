@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { cimdValidationResults, oauthAttempts } from "@/lib/db/schema";
 import { ensureSession, hasDcrAttemptForSession } from "@/lib/db/queries";
 import { classifyAuthorizeRequest, isHttpsUrl } from "@/lib/oauth/classify";
+import { getBaseUrl } from "@/lib/oauth/base-url";
 import { searchParamsToRecord } from "@/lib/oauth/parse";
 import { validateCimdDocument } from "@/lib/oauth/cimd-validator";
 
@@ -62,6 +63,7 @@ export async function GET(request: NextRequest) {
       const callbackUrl = new URL(redirectUri);
       callbackUrl.searchParams.set("code", "test-authorization-code");
       callbackUrl.searchParams.set("session_id", sessionId);
+      callbackUrl.searchParams.set("iss", getBaseUrl(request));
       if (state) callbackUrl.searchParams.set("state", state);
       return NextResponse.redirect(callbackUrl, 302);
     } catch {
@@ -71,6 +73,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     code: "test-authorization-code",
+    iss: getBaseUrl(request),
     session_id: sessionId,
     classification
   });
