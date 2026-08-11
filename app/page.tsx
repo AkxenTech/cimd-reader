@@ -62,6 +62,53 @@ export default async function DashboardPage() {
         </div>
       </section>
 
+      <section className="mb-7 rounded-lg border border-line bg-white p-5 shadow-sm">
+        <div className="flex flex-col gap-2 md:flex-row md:items-start md:justify-between">
+          <div>
+            <h2 className="text-lg font-semibold text-ink">Test endpoint</h2>
+            <p className="mt-1 text-sm text-slate-600">Add this Streamable HTTP MCP server URL to the client you want to test.</p>
+          </div>
+          <code className="break-all rounded-md bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100">
+            https://cimd-reader.vercel.app/mcp
+          </code>
+        </div>
+
+        <div className="mt-5 grid gap-4 lg:grid-cols-3">
+          <div className="rounded-lg border border-line bg-slate-50 p-4">
+            <h3 className="text-sm font-semibold text-slate-800">Codex CLI</h3>
+            <pre className="mt-3 overflow-auto rounded-md bg-white p-3 font-mono text-xs text-slate-800 ring-1 ring-line">{`codex mcp add cimd_reader \\
+  --url https://cimd-reader.vercel.app/mcp \\
+  --oauth-resource https://cimd-reader.vercel.app/mcp
+
+codex mcp login cimd_reader`}</pre>
+          </div>
+
+          <div className="rounded-lg border border-line bg-slate-50 p-4">
+            <h3 className="text-sm font-semibold text-slate-800">Claude Code</h3>
+            <pre className="mt-3 overflow-auto rounded-md bg-white p-3 font-mono text-xs text-slate-800 ring-1 ring-line">{`claude mcp add --transport http \\
+  cimd_reader \\
+  https://cimd-reader.vercel.app/mcp
+
+# then run /mcp in Claude Code`}</pre>
+          </div>
+
+          <div className="rounded-lg border border-line bg-slate-50 p-4">
+            <h3 className="text-sm font-semibold text-slate-800">VS Code</h3>
+            <pre className="mt-3 overflow-auto rounded-md bg-white p-3 font-mono text-xs text-slate-800 ring-1 ring-line">{`{
+  "servers": {
+    "cimd_reader": {
+      "type": "http",
+      "url": "https://cimd-reader.vercel.app/mcp",
+      "oauth": {
+        "clientId": "https://vscode.dev/oauth/client-metadata.json"
+      }
+    }
+  }
+}`}</pre>
+          </div>
+        </div>
+      </section>
+
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {clients.map((client) => {
           const metadata = parseRawMetadata(client.latestValidation?.rawMetadataJson) ?? {};

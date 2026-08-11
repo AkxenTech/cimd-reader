@@ -63,6 +63,49 @@ For Vercel, add the same environment variables in the project settings before de
 - `/authorize`
 - `/token`
 - `/register`
+- `/mcp`
+
+## MCP Client Setup
+
+Add this Streamable HTTP MCP server URL to the client being tested:
+
+```text
+https://cimd-reader.vercel.app/mcp
+```
+
+Codex CLI:
+
+```bash
+codex mcp add cimd_reader \
+  --url https://cimd-reader.vercel.app/mcp \
+  --oauth-resource https://cimd-reader.vercel.app/mcp
+
+codex mcp login cimd_reader
+```
+
+Claude Code:
+
+```bash
+claude mcp add --transport http \
+  cimd_reader \
+  https://cimd-reader.vercel.app/mcp
+```
+
+VS Code `mcp.json`:
+
+```json
+{
+  "servers": {
+    "cimd_reader": {
+      "type": "http",
+      "url": "https://cimd-reader.vercel.app/mcp",
+      "oauth": {
+        "clientId": "https://vscode.dev/oauth/client-metadata.json"
+      }
+    }
+  }
+}
+```
 
 The authorization server advertises CIMD support. `/authorize` logs the request, classifies the client behavior, validates HTTPS URL `client_id` values as CIMD metadata documents, stores the result, then redirects to `redirect_uri` with a fake authorization code. `/token` returns a fake bearer token. `/register` logs DCR attempts and returns a fake client registration.
 
