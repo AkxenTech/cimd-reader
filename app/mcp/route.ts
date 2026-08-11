@@ -30,7 +30,7 @@ export function OPTIONS(request: NextRequest) {
     headers: {
       "Access-Control-Allow-Origin": baseUrl,
       "Access-Control-Allow-Methods": "POST, OPTIONS",
-      "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Method, Mcp-Name"
+      "Access-Control-Allow-Headers": "Authorization, Content-Type, Accept, MCP-Protocol-Version, Mcp-Method, Mcp-Name, Mcp-Session-Id"
     }
   });
 }

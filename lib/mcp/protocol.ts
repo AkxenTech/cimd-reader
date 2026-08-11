@@ -5,7 +5,9 @@ export const MCP_COMPAT_PROTOCOL_VERSION = "2025-11-25";
 export const MCP_SUPPORTED_PROTOCOL_VERSIONS = [MCP_PROTOCOL_VERSION, MCP_COMPAT_PROTOCOL_VERSION] as const;
 export const MCP_SCOPE = "cimd:read";
 export const MCP_ACCESS_TOKEN = "test-access-token";
+const MCP_LEGACY_SESSION_ID = "cimd-reader-legacy-session";
 
+type SupportedProtocolVersion = (typeof MCP_SUPPORTED_PROTOCOL_VERSIONS)[number];
 type JsonRpcId = string | number | null;
 
 type JsonRpcRequest = {
@@ -20,6 +22,11 @@ const serverInfo = {
   title: "CIMD Reader",
   version: "0.1.0",
   description: "MCP OAuth diagnostics and CIMD validation dashboard"
+};
+
+const legacyServerInfo = {
+  name: serverInfo.name,
+  version: serverInfo.version
 };
 
 const tools = [
@@ -42,6 +49,12 @@ const tools = [
     inputSchema: { type: "object", additionalProperties: false }
   }
 ];
+
+const legacyTools = tools.map(({ name, description, inputSchema }) => ({
+  name,
+  description,
+  inputSchema
+}));
 
 export function mcpResourceUrl(baseUrl: string) {
   return `${baseUrl}/mcp`;
@@ -99,7 +112,15 @@ function jsonRpcError(id: JsonRpcId | undefined, code: number, message: string, 
   };
 }
 
-function jsonRpcResult(id: JsonRpcId, result: Record<string, unknown>) {
+function jsonRpcResult(id: JsonRpcId, result: Record<string, unknown>, protocolVersion: SupportedProtocolVersion) {
+  if (protocolVersion === MCP_COMPAT_PROTOCOL_VERSION) {
+    return {
+      jsonrpc: "2.0",
+      id,
+      result
+    };
+  }
+
   return {
     jsonrpc: "2.0",
     id,
@@ -110,8 +131,14 @@ function jsonRpcResult(id: JsonRpcId, result: Record<string, unknown>) {
   };
 }
 
-function resultJson(id: JsonRpcId, result: Record<string, unknown>, status = 200) {
-  return Response.json(jsonRpcResult(id, result), { status });
+function resultJson(
+  id: JsonRpcId,
+  result: Record<string, unknown>,
+  status = 200,
+  protocolVersion: SupportedProtocolVersion = MCP_PROTOCOL_VERSION,
+  headers?: HeadersInit
+) {
+  return Response.json(jsonRpcResult(id, result, protocolVersion), { status, headers });
 }
 
 function errorJson(id: JsonRpcId | undefined, code: number, message: string, status: number, data?: unknown) {
@@ -144,9 +171,9 @@ function isSupportedProtocolVersion(version: string) {
   return MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(version as (typeof MCP_SUPPORTED_PROTOCOL_VERSIONS)[number]);
 }
 
-function negotiatedProtocolVersion(httpRequest: Request, rpcRequest: JsonRpcRequest) {
+function negotiatedProtocolVersion(httpRequest: Request, rpcRequest: JsonRpcRequest): SupportedProtocolVersion {
   const requested = getRequestedProtocolVersions(httpRequest, rpcRequest);
-  return requested.find(isSupportedProtocolVersion) ?? MCP_PROTOCOL_VERSION;
+  return (requested.find(isSupportedProtocolVersion) as SupportedProtocolVersion | undefined) ?? MCP_PROTOCOL_VERSION;
 }
 
 function sourceNameForRequest(request: JsonRpcRequest) {
@@ -169,7 +196,7 @@ function validateRequiredHeaders(httpRequest: Request, rpcRequest: JsonRpcReques
   if (protocolHeader !== MCP_PROTOCOL_VERSION) {
     return null;
   }
-  if (bodyProtocol !== protocolHeader) {
+  if (bodyProtocol && bodyProtocol !== protocolHeader) {
     return `Header mismatch: MCP-Protocol-Version header value '${protocolHeader}' does not match request protocolVersion`;
   }
   if (!methodHeader) return "Header mismatch: Mcp-Method header is missing";
@@ -214,7 +241,35 @@ function validateProtocolVersion(httpRequest: Request, request: JsonRpcRequest) 
   };
 }
 
-async function handleToolCall(id: JsonRpcId, baseUrl: string, params: Record<string, unknown> | undefined) {
+function toolResult(
+  id: JsonRpcId,
+  protocolVersion: SupportedProtocolVersion,
+  content: Array<{ type: "text"; text: string }>,
+  structuredContent: Record<string, unknown>
+) {
+  if (protocolVersion === MCP_COMPAT_PROTOCOL_VERSION) {
+    return resultJson(id, { content, isError: false }, 200, protocolVersion);
+  }
+
+  return resultJson(
+    id,
+    {
+      resultType: "complete",
+      content,
+      structuredContent,
+      isError: false
+    },
+    200,
+    protocolVersion
+  );
+}
+
+async function handleToolCall(
+  id: JsonRpcId,
+  baseUrl: string,
+  params: Record<string, unknown> | undefined,
+  protocolVersion: SupportedProtocolVersion
+) {
   const name = typeof params?.name === "string" ? params.name : "";
 
   if (name === "cimd.server.info") {
@@ -226,32 +281,17 @@ async function handleToolCall(id: JsonRpcId, baseUrl: string, params: Record<str
       protocolVersion: MCP_PROTOCOL_VERSION,
       supportedProtocolVersions: MCP_SUPPORTED_PROTOCOL_VERSIONS
     };
-    return resultJson(id, {
-      resultType: "complete",
-      content: [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }],
-      structuredContent,
-      isError: false
-    });
+    return toolResult(id, protocolVersion, [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }], structuredContent);
   }
 
   if (name === "cimd.clients.list") {
     const clients = await getClientsWithLatestSignals();
-    return resultJson(id, {
-      resultType: "complete",
-      content: [{ type: "text", text: JSON.stringify(clients, null, 2) }],
-      structuredContent: { clients },
-      isError: false
-    });
+    return toolResult(id, protocolVersion, [{ type: "text", text: JSON.stringify(clients, null, 2) }], { clients });
   }
 
   if (name === "cimd.sessions.list") {
     const sessions = await getSessions();
-    return resultJson(id, {
-      resultType: "complete",
-      content: [{ type: "text", text: JSON.stringify(sessions, null, 2) }],
-      structuredContent: { sessions },
-      isError: false
-    });
+    return toolResult(id, protocolVersion, [{ type: "text", text: JSON.stringify(sessions, null, 2) }], { sessions });
   }
 
   return errorJson(id, -32602, `Unknown tool '${name}'`, 400);
@@ -276,6 +316,8 @@ export async function handleMcpRequest(httpRequest: Request, body: JsonRpcReques
     return errorJson(body.id, versionError.code, versionError.message, 400, versionError.data);
   }
 
+  const protocolVersion = negotiatedProtocolVersion(httpRequest, body);
+
   if (body.method === "server/discover") {
     return resultJson(body.id, {
       resultType: "complete",
@@ -284,29 +326,34 @@ export async function handleMcpRequest(httpRequest: Request, body: JsonRpcReques
       instructions: "Use this server to inspect CIMD/OAuth behavior captured by the public dashboard.",
       ttlMs: 300000,
       cacheScope: "public"
-    });
+    }, 200, protocolVersion);
   }
 
   if (body.method === "initialize") {
+    const headers = protocolVersion === MCP_COMPAT_PROTOCOL_VERSION ? { "Mcp-Session-Id": MCP_LEGACY_SESSION_ID } : undefined;
     return resultJson(body.id, {
-      protocolVersion: negotiatedProtocolVersion(httpRequest, body),
+      protocolVersion,
       capabilities: { tools: { listChanged: false } },
-      serverInfo,
+      serverInfo: protocolVersion === MCP_COMPAT_PROTOCOL_VERSION ? legacyServerInfo : serverInfo,
       instructions: "Use this server to inspect CIMD/OAuth behavior captured by the public dashboard."
-    });
+    }, 200, protocolVersion, headers);
   }
 
   if (body.method === "tools/list") {
+    if (protocolVersion === MCP_COMPAT_PROTOCOL_VERSION) {
+      return resultJson(body.id, { tools: legacyTools }, 200, protocolVersion);
+    }
+
     return resultJson(body.id, {
       resultType: "complete",
       tools,
       ttlMs: 300000,
       cacheScope: "public"
-    });
+    }, 200, protocolVersion);
   }
 
   if (body.method === "tools/call") {
-    return handleToolCall(body.id, baseUrl, body.params);
+    return handleToolCall(body.id, baseUrl, body.params, protocolVersion);
   }
 
   return errorJson(body.id, -32601, `Method not found: ${body.method}`, 404);
