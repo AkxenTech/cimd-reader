@@ -31,19 +31,19 @@ const legacyServerInfo = {
 
 const tools = [
   {
-    name: "cimd.server.info",
+    name: "cimd_server_info",
     title: "CIMD Server Info",
     description: "Return public dashboard, MCP endpoint, and OAuth metadata URLs for this test server.",
     inputSchema: { type: "object", additionalProperties: false }
   },
   {
-    name: "cimd.clients.list",
+    name: "cimd_clients_list",
     title: "List CIMD Clients",
     description: "List tracked MCP clients with their latest observed OAuth/CIMD status.",
     inputSchema: { type: "object", additionalProperties: false }
   },
   {
-    name: "cimd.sessions.list",
+    name: "cimd_sessions_list",
     title: "List Validation Sessions",
     description: "List recent OAuth validation sessions captured by the dashboard.",
     inputSchema: { type: "object", additionalProperties: false }
@@ -55,6 +55,13 @@ const legacyTools = tools.map(({ name, description, inputSchema }) => ({
   description,
   inputSchema
 }));
+
+function normalizeToolName(name: string) {
+  if (name === "cimd.server.info") return "cimd_server_info";
+  if (name === "cimd.clients.list") return "cimd_clients_list";
+  if (name === "cimd.sessions.list") return "cimd_sessions_list";
+  return name;
+}
 
 export function mcpResourceUrl(baseUrl: string) {
   return `${baseUrl}/mcp`;
@@ -270,9 +277,9 @@ async function handleToolCall(
   params: Record<string, unknown> | undefined,
   protocolVersion: SupportedProtocolVersion
 ) {
-  const name = typeof params?.name === "string" ? params.name : "";
+  const name = normalizeToolName(typeof params?.name === "string" ? params.name : "");
 
-  if (name === "cimd.server.info") {
+  if (name === "cimd_server_info") {
     const structuredContent = {
       dashboardUrl: baseUrl,
       mcpEndpoint: mcpResourceUrl(baseUrl),
@@ -284,12 +291,12 @@ async function handleToolCall(
     return toolResult(id, protocolVersion, [{ type: "text", text: JSON.stringify(structuredContent, null, 2) }], structuredContent);
   }
 
-  if (name === "cimd.clients.list") {
+  if (name === "cimd_clients_list") {
     const clients = await getClientsWithLatestSignals();
     return toolResult(id, protocolVersion, [{ type: "text", text: JSON.stringify(clients, null, 2) }], { clients });
   }
 
-  if (name === "cimd.sessions.list") {
+  if (name === "cimd_sessions_list") {
     const sessions = await getSessions();
     return toolResult(id, protocolVersion, [{ type: "text", text: JSON.stringify(sessions, null, 2) }], { sessions });
   }
