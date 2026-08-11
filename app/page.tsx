@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CheckCircle2, CircleHelp, CircleX, ExternalLink, RadioTower } from "lucide-react";
 
 import { getClientsWithLatestSignals } from "@/lib/db/queries";
+import { GITHUB_HANDLE, GITHUB_URL } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
 
@@ -56,6 +57,15 @@ export default async function DashboardPage() {
           <p className="mt-3 max-w-3xl text-slate-600">
             See whether IDEs and developer tools use CIMD, fall back to Dynamic Client Registration, or send static client IDs during OAuth.
           </p>
+          <a
+            href={GITHUB_URL}
+            target="_blank"
+            rel="noreferrer"
+            className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-slate-700 hover:text-ink"
+          >
+            Built by @{GITHUB_HANDLE}
+            <ExternalLink className="h-3.5 w-3.5" />
+          </a>
         </div>
         <div className="rounded-lg border border-line bg-white px-4 py-3 text-sm text-slate-600">
           Authorization server: <code className="font-mono text-ink">/.well-known/oauth-authorization-server</code>

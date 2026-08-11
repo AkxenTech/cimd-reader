@@ -1,4 +1,5 @@
 import { getClientsWithLatestSignals, getSessions } from "@/lib/db/queries";
+import { GITHUB_HANDLE, GITHUB_URL } from "@/lib/site";
 
 export const MCP_PROTOCOL_VERSION = "2026-07-28";
 export const MCP_COMPAT_PROTOCOL_VERSION = "2025-11-25";
@@ -285,6 +286,8 @@ async function handleToolCall(
       mcpEndpoint: mcpResourceUrl(baseUrl),
       protectedResourceMetadata: protectedResourceMetadataUrl(baseUrl),
       authorizationServerMetadata: `${baseUrl}/.well-known/oauth-authorization-server`,
+      githubHandle: GITHUB_HANDLE,
+      githubUrl: GITHUB_URL,
       protocolVersion: MCP_PROTOCOL_VERSION,
       supportedProtocolVersions: MCP_SUPPORTED_PROTOCOL_VERSIONS
     };
