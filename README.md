@@ -70,15 +70,15 @@ For Vercel, add the same environment variables in the project settings before de
 Add this Streamable HTTP MCP server URL to the client being tested:
 
 ```text
-https://cimd-reader.vercel.app/mcp
+https://cimd-reader.akxen.tech/mcp
 ```
 
 Codex CLI:
 
 ```bash
 codex mcp add cimd_reader \
-  --url https://cimd-reader.vercel.app/mcp \
-  --oauth-resource https://cimd-reader.vercel.app/mcp
+  --url https://cimd-reader.akxen.tech/mcp \
+  --oauth-resource https://cimd-reader.akxen.tech/mcp
 
 codex mcp login cimd_reader
 ```
@@ -88,7 +88,7 @@ Claude Code:
 ```bash
 claude mcp add --transport http \
   cimd_reader \
-  https://cimd-reader.vercel.app/mcp
+  https://cimd-reader.akxen.tech/mcp
 ```
 
 VS Code `mcp.json`:
@@ -98,7 +98,7 @@ VS Code `mcp.json`:
   "servers": {
     "cimd_reader": {
       "type": "http",
-      "url": "https://cimd-reader.vercel.app/mcp",
+      "url": "https://cimd-reader.akxen.tech/mcp",
       "oauth": {
         "clientId": "https://vscode.dev/oauth/client-metadata.json"
       }

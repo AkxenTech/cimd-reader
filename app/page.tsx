@@ -69,7 +69,7 @@ export default async function DashboardPage() {
             <p className="mt-1 text-sm text-slate-600">Add this Streamable HTTP MCP server URL to the client you want to test.</p>
           </div>
           <code className="break-all rounded-md bg-slate-950 px-3 py-2 font-mono text-xs text-slate-100">
-            https://cimd-reader.vercel.app/mcp
+            https://cimd-reader.akxen.tech/mcp
           </code>
         </div>
 
@@ -77,8 +77,8 @@ export default async function DashboardPage() {
           <div className="rounded-lg border border-line bg-slate-50 p-4">
             <h3 className="text-sm font-semibold text-slate-800">Codex CLI</h3>
             <pre className="mt-3 overflow-auto rounded-md bg-white p-3 font-mono text-xs text-slate-800 ring-1 ring-line">{`codex mcp add cimd_reader \\
-  --url https://cimd-reader.vercel.app/mcp \\
-  --oauth-resource https://cimd-reader.vercel.app/mcp
+  --url https://cimd-reader.akxen.tech/mcp \\
+  --oauth-resource https://cimd-reader.akxen.tech/mcp
 
 codex mcp login cimd_reader`}</pre>
           </div>
@@ -87,7 +87,7 @@ codex mcp login cimd_reader`}</pre>
             <h3 className="text-sm font-semibold text-slate-800">Claude Code</h3>
             <pre className="mt-3 overflow-auto rounded-md bg-white p-3 font-mono text-xs text-slate-800 ring-1 ring-line">{`claude mcp add --transport http \\
   cimd_reader \\
-  https://cimd-reader.vercel.app/mcp
+  https://cimd-reader.akxen.tech/mcp
 
 # then run /mcp in Claude Code`}</pre>
           </div>
@@ -98,7 +98,7 @@ codex mcp login cimd_reader`}</pre>
   "servers": {
     "cimd_reader": {
       "type": "http",
-      "url": "https://cimd-reader.vercel.app/mcp",
+      "url": "https://cimd-reader.akxen.tech/mcp",
       "oauth": {
         "clientId": "https://vscode.dev/oauth/client-metadata.json"
       }
