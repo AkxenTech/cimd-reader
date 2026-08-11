@@ -45,7 +45,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   const detail = await getClientDetail(id);
   if (!detail) notFound();
 
-  const { client, latestAttempt, latestValidation } = detail;
+  const { client, latestAttempt, latestValidation, observedBehavior, observedEvidence, observedAt } = detail;
   const metadata = metadataObject(latestValidation?.rawMetadataJson);
   const errors = parseJsonArray(latestValidation?.validationErrors);
   const warnings = parseJsonArray(latestValidation?.validationWarnings);
@@ -64,15 +64,17 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
             <p className="mt-3 max-w-3xl text-slate-600">{client.notes ?? "No notes recorded."}</p>
           </div>
           <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 ring-1 ring-slate-200">
-            claimed: {client.supportStatus.replace("_", " ")}
+            observed: {observedBehavior}
           </span>
         </div>
 
         <dl className="mt-6 grid gap-4 md:grid-cols-2">
+          <Field label="Observed evidence" value={observedEvidence} />
+          <Field label="Observed at" value={observedAt} />
           <Field label="Metadata URL" value={client.metadataUrl} />
           <Field label="Vendor" value={client.vendor} />
           <Field label="Source URL" value={client.sourceUrl} />
-          <Field label="Observed behavior" value={latestAttempt?.classification ?? "unknown"} />
+          <Field label="Claimed status" value={client.supportStatus.replace("_", " ")} />
         </dl>
       </section>
 

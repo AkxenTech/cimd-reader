@@ -7,6 +7,16 @@ import { requestBodyToRecord } from "@/lib/oauth/parse";
 
 export const runtime = "nodejs";
 
+function slugClientId(value: string) {
+  const slug = value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 48);
+
+  return `dcr-${slug || "client"}`;
+}
+
 export async function POST(request: NextRequest) {
   const url = new URL(request.url);
   const { raw } = await requestBodyToRecord(request);
@@ -23,6 +33,7 @@ export async function POST(request: NextRequest) {
     : ["authorization_code", "refresh_token"];
   const scope = typeof rawRecord.scope === "string" ? rawRecord.scope : "cimd:read";
   const clientName = typeof rawRecord.client_name === "string" ? rawRecord.client_name : "DCR test client";
+  const registeredClientId = slugClientId(clientName);
 
   await ensureSession(sessionId, "Dynamic Client Registration");
   await db.insert(oauthAttempts).values({
@@ -31,7 +42,7 @@ export async function POST(request: NextRequest) {
     createdAt: new Date().toISOString(),
     path: "/register",
     method: request.method,
-    clientId: "dcr-test-client-id",
+    clientId: registeredClientId,
     redirectUri: redirectUris.length ? redirectUris.join(", ") : null,
     responseType: responseTypes.join(" "),
     scope,
@@ -46,7 +57,7 @@ export async function POST(request: NextRequest) {
   });
 
   return NextResponse.json({
-    client_id: "dcr-test-client-id",
+    client_id: registeredClientId,
     client_id_issued_at: 1710000000,
     client_name: clientName,
     redirect_uris: redirectUris,

@@ -13,7 +13,7 @@ export function isHttpsUrl(value: string | null | undefined) {
 export function classifyAuthorizeRequest(clientId: string | null, hadDcrAttempt: boolean): RequestClassification {
   if (!clientId) return "unknown";
   if (isHttpsUrl(clientId)) return "cimd";
-  if (hadDcrAttempt) return "dcr";
+  if (hadDcrAttempt || clientId.startsWith("dcr-") || clientId === "dcr-test-client-id") return "dcr";
   try {
     new URL(clientId);
     return "unknown";

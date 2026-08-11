@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { getSessions } from "@/lib/db/queries";
+import { displayClassification, getSessions } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -14,13 +14,16 @@ export default async function SessionsPage() {
         <h1 className="mt-2 text-3xl font-semibold tracking-tight">OAuth Request Timeline</h1>
       </div>
 
-      <div className="overflow-hidden rounded-lg border border-line bg-white shadow-sm">
+      <div className="overflow-x-auto rounded-lg border border-line bg-white shadow-sm">
         {sessions.length ? (
-          <table className="w-full border-collapse text-left text-sm">
+          <table className="min-w-[980px] w-full border-collapse text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
                 <th className="px-4 py-3">Session</th>
                 <th className="px-4 py-3">Label</th>
+                <th className="px-4 py-3">Latest event</th>
+                <th className="px-4 py-3">Behavior</th>
+                <th className="px-4 py-3">Client ID</th>
                 <th className="px-4 py-3">Created</th>
                 <th className="px-4 py-3">Attempts</th>
               </tr>
@@ -34,6 +37,9 @@ export default async function SessionsPage() {
                     </Link>
                   </td>
                   <td className="px-4 py-3">{session.label ?? "Unlabeled"}</td>
+                  <td className="px-4 py-3">{session.latestAttempt ? `${session.latestAttempt.method} ${session.latestAttempt.path}` : "None"}</td>
+                  <td className="px-4 py-3">{displayClassification(session.latestAttempt)}</td>
+                  <td className="max-w-[220px] truncate px-4 py-3 font-mono text-xs">{session.latestAttempt?.clientId ?? "None"}</td>
                   <td className="px-4 py-3">{session.createdAt}</td>
                   <td className="px-4 py-3">{session.attemptCount}</td>
                 </tr>

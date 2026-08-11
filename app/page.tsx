@@ -16,8 +16,13 @@ function parseRawMetadata(raw: string | null | undefined) {
 
 function statusClasses(status: string) {
   switch (status) {
+    case "cimd":
     case "verified":
       return "bg-emerald-50 text-emerald-700 ring-emerald-200";
+    case "dcr":
+      return "bg-sky-50 text-sky-700 ring-sky-200";
+    case "static":
+      return "bg-orange-50 text-orange-800 ring-orange-200";
     case "failed":
       return "bg-red-50 text-red-700 ring-red-200";
     case "not_supported":
@@ -28,7 +33,7 @@ function statusClasses(status: string) {
 }
 
 function StatusIcon({ status }: { status: string }) {
-  if (status === "verified") return <CheckCircle2 className="h-4 w-4" />;
+  if (status === "verified" || status === "cimd" || status === "dcr") return <CheckCircle2 className="h-4 w-4" />;
   if (status === "failed" || status === "not_supported") return <CircleX className="h-4 w-4" />;
   return <CircleHelp className="h-4 w-4" />;
 }
@@ -47,9 +52,9 @@ export default async function DashboardPage() {
       <section className="mb-7 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
         <div>
           <p className="mb-2 text-sm font-medium uppercase tracking-[0.18em] text-slate-500">MCP OAuth diagnostics</p>
-          <h1 className="text-3xl font-semibold tracking-tight text-ink">Client ID Metadata Document support</h1>
+          <h1 className="text-3xl font-semibold tracking-tight text-ink">Observed MCP OAuth client behavior</h1>
           <p className="mt-3 max-w-3xl text-slate-600">
-            Test whether IDEs and developer tools use CIMD, fall back to Dynamic Client Registration, or send static client IDs during OAuth.
+            See whether IDEs and developer tools use CIMD, fall back to Dynamic Client Registration, or send static client IDs during OAuth.
           </p>
         </div>
         <div className="rounded-lg border border-line bg-white px-4 py-3 text-sm text-slate-600">
@@ -79,16 +84,20 @@ export default async function DashboardPage() {
                     <p className="text-sm text-slate-500">{client.category ?? "Tool"}</p>
                   </div>
                 </div>
-                <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${statusClasses(client.supportStatus)}`}>
-                  <StatusIcon status={client.supportStatus} />
-                  {client.supportStatus.replace("_", " ")}
+                <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${statusClasses(client.observedBehavior)}`}>
+                  <StatusIcon status={client.observedBehavior} />
+                  {client.observedBehavior}
                 </span>
               </div>
 
               <dl className="mt-5 grid gap-3 text-sm">
                 <div>
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Metadata URL</dt>
-                  <dd className="mt-1 break-all font-mono text-xs text-slate-700">{client.metadataUrl ?? "Unknown"}</dd>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Observed result</dt>
+                  <dd className="mt-1 text-slate-800">{client.observedEvidence}</dd>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Claimed status</dt>
+                  <dd className="mt-1 text-slate-800">{client.supportStatus.replace("_", " ")}</dd>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div>
@@ -97,8 +106,12 @@ export default async function DashboardPage() {
                   </div>
                   <div>
                     <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Observed behavior</dt>
-                    <dd className="mt-1 text-slate-800">{client.latestAttempt?.classification ?? "unknown"}</dd>
+                    <dd className="mt-1 text-slate-800">{client.observedBehavior}</dd>
                   </div>
+                </div>
+                <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Metadata URL</dt>
+                  <dd className="mt-1 break-all font-mono text-xs text-slate-700">{client.metadataUrl ?? "Unknown"}</dd>
                 </div>
                 <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Client URI</dt>
@@ -140,8 +153,10 @@ export default async function DashboardPage() {
               </dl>
 
               <div className="mt-auto border-t border-line pt-4 text-sm text-slate-600">
-                Last validation:{" "}
-                {client.latestValidation ? (
+                Last observed:{" "}
+                {client.observedAt ? (
+                  <span className="text-slate-800">{client.observedAt}</span>
+                ) : client.latestValidation ? (
                   <span className={client.latestValidation.metadataValid ? "text-emerald-700" : "text-red-700"}>
                     {client.latestValidation.metadataValid ? "pass" : "fail"} at {client.latestValidation.createdAt}
                   </span>

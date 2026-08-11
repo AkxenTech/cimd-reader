@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { getSessionTimeline } from "@/lib/db/queries";
+import { displayClassification, getSessionTimeline } from "@/lib/db/queries";
 import type { CimdValidationResult } from "@/lib/db/schema";
 
 export const dynamic = "force-dynamic";
@@ -37,7 +37,7 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
                   <h2 className="mt-1 text-lg font-semibold">{attempt.method} {attempt.path}</h2>
                 </div>
                 <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-sm text-slate-700 ring-1 ring-slate-200">
-                  {attempt.classification ?? "logged"}
+                  {displayClassification(attempt)}
                 </span>
               </div>
 
