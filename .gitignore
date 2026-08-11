@@ -1,0 +1,41 @@
+# dependencies
+node_modules/
+
+# next.js
+.next/
+out/
+
+# production
+build/
+dist/
+
+# local databases
+local.db
+local.db-*
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+
+# environment variables
+.env
+.env.*
+!.env.example
+
+# vercel local project metadata
+.vercel/
+
+# macOS metadata and Spotlight
+.DS_Store
+._*
+.Spotlight-V100/
+.Trashes/
+.fseventsd/
+
+# logs and caches
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+*.tsbuildinfo
