@@ -287,8 +287,18 @@ function sessionClientSummary(attempts: OAuthAttempt[], results: (typeof cimdVal
     clientKey: canonicalClientKey(candidate) ?? "unknown-client",
     clientType: displayClientType(candidate),
     clientVersions: versions,
+    sessionBehavior: sessionBehavior(attempts),
     behaviorCounts
   };
+}
+
+function sessionBehavior(attempts: OAuthAttempt[]) {
+  const behaviors = attempts.map(observedBehavior);
+  if (behaviors.includes("cimd")) return "cimd";
+  if (behaviors.includes("dcr")) return "dcr";
+  if (behaviors.includes("static")) return "static";
+  if (behaviors.includes("mcp")) return "mcp";
+  return behaviors.find((behavior) => behavior !== "unknown") ?? "unknown";
 }
 
 export async function getSessionTimeline(id: string) {

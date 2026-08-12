@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { displayClassification, getSessions } from "@/lib/db/queries";
+import { getSessions } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
 
@@ -19,9 +19,7 @@ export default async function SessionsPage() {
     group.sessions.push(session);
     group.attempts += session.attemptCount;
     for (const version of session.clientVersions) group.versions.add(version);
-    for (const [behavior, count] of Object.entries(session.behaviorCounts)) {
-      group.behaviors.set(behavior, (group.behaviors.get(behavior) ?? 0) + count);
-    }
+    group.behaviors.set(session.sessionBehavior, (group.behaviors.get(session.sessionBehavior) ?? 0) + 1);
     map.set(session.clientKey, group);
     return map;
   }, new Map<string, {
@@ -90,7 +88,7 @@ export default async function SessionsPage() {
                           </td>
                           <td className="px-4 py-3">{session.label ?? "Unlabeled"}</td>
                           <td className="px-4 py-3">{session.latestAttempt ? `${session.latestAttempt.method} ${session.latestAttempt.path}` : "None"}</td>
-                          <td className="px-4 py-3">{displayClassification(session.latestAttempt)}</td>
+                          <td className="px-4 py-3">{session.sessionBehavior}</td>
                           <td className="px-4 py-3">
                             {session.clientType !== "Unknown client" ? (
                               <>
