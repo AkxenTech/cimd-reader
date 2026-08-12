@@ -39,6 +39,31 @@ function clientAliases(client: McpClient) {
   return [...aliases].map(normalize).filter(Boolean);
 }
 
+function canonicalClientKey(value: string | null | undefined) {
+  const normalized = normalize(value);
+  if (!normalized) return null;
+
+  if (normalized.includes("claude")) return "claude-code";
+  if (normalized.includes("codex") || normalized.includes("openai codex")) return "codex-cli";
+  if (normalized.includes("mcpjam") || normalized.includes("mcp jam")) return "mcpjam-inspector";
+  if (normalized.includes("visual studio code") || normalized.includes("vs code") || normalized === "vscode" || normalized.includes("vscode dev")) return "vscode";
+  if (normalized.includes("github copilot") || normalized === "copilot") return "github-copilot";
+
+  return normalized.replace(/\s+/g, "-");
+}
+
+function displayClientType(value: string | null | undefined) {
+  const normalized = normalize(value);
+  if (!normalized) return "Unknown client";
+  if (canonicalClientKey(value) === "mcpjam-inspector") return "MCPJam Inspector";
+  if (canonicalClientKey(value) === "codex-cli") return "Codex CLI";
+  if (canonicalClientKey(value) === "claude-code") return "Claude Code";
+  if (canonicalClientKey(value) === "vscode") return "VS Code";
+  if (canonicalClientKey(value) === "github-copilot") return "GitHub Copilot";
+
+  return value?.trim() || "Unknown client";
+}
+
 function registeredClientName(attempt: OAuthAttempt) {
   const body = parseBodyJson(attempt.rawBodyJson);
   return typeof body?.client_name === "string" ? body.client_name : null;
@@ -157,7 +182,7 @@ function observedSignalsForClient(client: McpClient, attempts: OAuthAttempt[], r
 
 export async function getSessions() {
   const sessions = await db.select().from(validationSessions).orderBy(desc(validationSessions.createdAt));
-  const latestAttempts = await db
+  const attempts = await db
     .select()
     .from(oauthAttempts)
     .orderBy(desc(oauthAttempts.createdAt));
@@ -165,11 +190,17 @@ export async function getSessions() {
     .select({ sessionId: oauthAttempts.sessionId, count: sql<number>`count(*)` })
     .from(oauthAttempts)
     .groupBy(oauthAttempts.sessionId);
+  const attemptIds = attempts.map((attempt) => attempt.id);
+  const results = attemptIds.length
+    ? await db.select().from(cimdValidationResults).where(inArray(cimdValidationResults.attemptId, attemptIds))
+    : [];
 
   return sessions.map((session) => ({
     ...session,
     attemptCount: Number(counts.find((count) => count.sessionId === session.id)?.count ?? 0),
-    latestAttempt: latestAttempts.find((attempt) => attempt.sessionId === session.id) ?? null
+    attempts: attempts.filter((attempt) => attempt.sessionId === session.id),
+    latestAttempt: attempts.find((attempt) => attempt.sessionId === session.id) ?? null,
+    ...sessionClientSummary(attempts.filter((attempt) => attempt.sessionId === session.id), results)
   }));
 }
 
@@ -206,6 +237,56 @@ export function clientTypeForAttempt(attempt: OAuthAttempt | null) {
 
 export function clientVersionForAttempt(attempt: OAuthAttempt | null) {
   return attempt?.clientVersion ?? null;
+}
+
+function metadataNameForAttemptId(attemptId: string, results: (typeof cimdValidationResults.$inferSelect)[]) {
+  const result = results.find((item) => item.attemptId === attemptId);
+  if (!result?.rawMetadataJson) return null;
+
+  try {
+    const metadata = JSON.parse(result.rawMetadataJson) as Record<string, unknown>;
+    return typeof metadata.client_name === "string" ? metadata.client_name : null;
+  } catch {
+    return null;
+  }
+}
+
+function clientTypeCandidate(attempt: OAuthAttempt, results: (typeof cimdValidationResults.$inferSelect)[]) {
+  const registeredName = registeredClientName(attempt);
+  const metadataName = metadataNameForAttemptId(attempt.id, results);
+
+  if (attempt.classification === "cimd") {
+    return metadataName ?? attempt.clientName ?? clientTypeForAttempt(attempt);
+  }
+
+  if (attempt.path === "/register") {
+    return registeredName ?? attempt.clientName ?? clientTypeForAttempt(attempt);
+  }
+
+  return attempt.clientName ?? registeredName ?? metadataName ?? clientTypeForAttempt(attempt);
+}
+
+function sessionClientSummary(attempts: OAuthAttempt[], results: (typeof cimdValidationResults.$inferSelect)[]) {
+  const prioritized = [
+    attempts.find((attempt) => attempt.classification === "cimd"),
+    attempts.find((attempt) => attempt.path === "/register"),
+    attempts.find((attempt) => attempt.classification === "mcp"),
+    attempts[0]
+  ].filter((attempt): attempt is OAuthAttempt => Boolean(attempt));
+  const candidate = prioritized.map((attempt) => clientTypeCandidate(attempt, results)).find((value) => normalize(value));
+  const behaviorCounts = attempts.reduce<Record<string, number>>((counts, attempt) => {
+    const behavior = observedBehavior(attempt);
+    counts[behavior] = (counts[behavior] ?? 0) + 1;
+    return counts;
+  }, {});
+  const versions = [...new Set(attempts.map((attempt) => attempt.clientVersion).filter((version): version is string => Boolean(version)))].sort();
+
+  return {
+    clientKey: canonicalClientKey(candidate) ?? "unknown-client",
+    clientType: displayClientType(candidate),
+    clientVersions: versions,
+    behaviorCounts
+  };
 }
 
 export async function getSessionTimeline(id: string) {

@@ -1,17 +1,15 @@
 import Link from "next/link";
 
-import { clientTypeForAttempt, clientVersionForAttempt, displayClassification, getSessions } from "@/lib/db/queries";
+import { displayClassification, getSessions } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
 
 export default async function SessionsPage() {
   const sessions = await getSessions();
   const groups = [...sessions.reduce((map, session) => {
-    const clientType = clientTypeForAttempt(session.latestAttempt);
-    const version = clientVersionForAttempt(session.latestAttempt);
-    const behavior = displayClassification(session.latestAttempt);
-    const group = map.get(clientType) ?? {
-      clientType,
+    const group = map.get(session.clientKey) ?? {
+      clientKey: session.clientKey,
+      clientType: session.clientType,
       sessions: [] as typeof sessions,
       versions: new Set<string>(),
       behaviors: new Map<string, number>(),
@@ -20,11 +18,14 @@ export default async function SessionsPage() {
 
     group.sessions.push(session);
     group.attempts += session.attemptCount;
-    if (version) group.versions.add(version);
-    group.behaviors.set(behavior, (group.behaviors.get(behavior) ?? 0) + 1);
-    map.set(clientType, group);
+    for (const version of session.clientVersions) group.versions.add(version);
+    for (const [behavior, count] of Object.entries(session.behaviorCounts)) {
+      group.behaviors.set(behavior, (group.behaviors.get(behavior) ?? 0) + count);
+    }
+    map.set(session.clientKey, group);
     return map;
   }, new Map<string, {
+    clientKey: string;
     clientType: string;
     sessions: typeof sessions;
     versions: Set<string>;
@@ -49,7 +50,7 @@ export default async function SessionsPage() {
               .join(" · ");
 
             return (
-              <section key={group.clientType} className="rounded-lg border border-line bg-white shadow-sm">
+              <section key={group.clientKey} className="rounded-lg border border-line bg-white shadow-sm">
                 <div className="flex flex-col gap-3 border-b border-line px-4 py-4 sm:flex-row sm:items-start sm:justify-between">
                   <div>
                     <p className="text-xs font-medium uppercase tracking-wide text-slate-500">Client type</p>
@@ -91,10 +92,10 @@ export default async function SessionsPage() {
                           <td className="px-4 py-3">{session.latestAttempt ? `${session.latestAttempt.method} ${session.latestAttempt.path}` : "None"}</td>
                           <td className="px-4 py-3">{displayClassification(session.latestAttempt)}</td>
                           <td className="px-4 py-3">
-                            {session.latestAttempt?.clientName ? (
+                            {session.clientType !== "Unknown client" ? (
                               <>
-                                {session.latestAttempt.clientName}
-                                {session.latestAttempt.clientVersion ? <span className="text-slate-500"> {session.latestAttempt.clientVersion}</span> : null}
+                                {session.clientType}
+                                {session.clientVersions.length ? <span className="text-slate-500"> {session.clientVersions.join(", ")}</span> : null}
                               </>
                             ) : "Unknown"}
                           </td>
