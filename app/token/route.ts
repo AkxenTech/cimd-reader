@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
 import { oauthAttempts } from "@/lib/db/schema";
-import { ensureSession } from "@/lib/db/queries";
+import { ensureSession, findRecentAuthorizeSessionForToken } from "@/lib/db/queries";
 import { mcpResourceUrl } from "@/lib/mcp/protocol";
 import { clientSignalFromPayload } from "@/lib/oauth/client-signal";
 import { getBaseUrl } from "@/lib/oauth/base-url";
@@ -13,7 +13,9 @@ export const runtime = "nodejs";
 export async function POST(request: NextRequest) {
   const { raw } = await requestBodyToRecord(request);
   const rawRecord = raw as Record<string, unknown>;
-  const sessionId = typeof rawRecord.session_id === "string" ? rawRecord.session_id : crypto.randomUUID();
+  const providedSessionId = typeof rawRecord.session_id === "string" ? rawRecord.session_id : null;
+  const clientId = typeof rawRecord.client_id === "string" ? rawRecord.client_id : null;
+  const redirectUri = typeof rawRecord.redirect_uri === "string" ? rawRecord.redirect_uri : null;
   const resource = typeof rawRecord.resource === "string" ? rawRecord.resource : null;
   const expectedResource = mcpResourceUrl(getBaseUrl(request));
   const userAgent = request.headers.get("user-agent");
@@ -23,15 +25,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "invalid_target", error_description: "resource does not match this MCP server" }, { status: 400 });
   }
 
-  await ensureSession(sessionId, "Token exchange");
+  const correlatedSessionId = providedSessionId ?? await findRecentAuthorizeSessionForToken({ clientId, redirectUri });
+  const sessionId = correlatedSessionId ?? crypto.randomUUID();
+
+  await ensureSession(sessionId, correlatedSessionId ? null : "Token exchange");
   await db.insert(oauthAttempts).values({
     id: crypto.randomUUID(),
     sessionId,
     createdAt: new Date().toISOString(),
     path: "/token",
     method: request.method,
-    clientId: typeof rawRecord.client_id === "string" ? rawRecord.client_id : null,
-    redirectUri: typeof rawRecord.redirect_uri === "string" ? rawRecord.redirect_uri : null,
+    clientId,
+    redirectUri,
     responseType: null,
     scope: typeof rawRecord.scope === "string" ? rawRecord.scope : null,
     state: null,
@@ -50,7 +55,8 @@ export async function POST(request: NextRequest) {
     access_token: "test-access-token",
     token_type: "Bearer",
     expires_in: 3600,
-    scope: typeof rawRecord.scope === "string" ? rawRecord.scope : "cimd:read"
+    scope: typeof rawRecord.scope === "string" ? rawRecord.scope : "cimd:read",
+    session_id: sessionId
   });
 }
 

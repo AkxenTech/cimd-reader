@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 
-import { desc } from "drizzle-orm";
+import { and, desc, eq } from "drizzle-orm";
 
+import { GET as authorizeGet } from "../app/authorize/route";
+import { POST as tokenPost } from "../app/token/route";
 import { db } from "../lib/db";
 import { oauthAttempts } from "../lib/db/schema";
 import { handleMcpRequest } from "../lib/mcp/protocol";
@@ -127,8 +129,43 @@ async function main() {
   assert.equal(latest.clientName, "Local MCP Smoke");
   assert.equal(latest.clientVersion, probeVersion);
 
+  const oauthSessionId = crypto.randomUUID();
+  const clientId = `local-client-${probeVersion}`;
+  const redirectUri = `http://localhost/callback-${probeVersion}`;
+  await authorizeGet(new Request(`${baseUrl}/authorize?${new URLSearchParams({
+    session_id: oauthSessionId,
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    scope: "cimd:read"
+  })}`) as never);
+
+  const tokenResponse = await tokenPost(new Request(`${baseUrl}/token`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      "user-agent": `LocalOAuthSmoke/${probeVersion}`
+    },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code: "test-authorization-code",
+      client_id: clientId,
+      redirect_uri: redirectUri
+    })
+  }) as never);
+  const tokenPayload = await tokenResponse.json() as Record<string, unknown>;
+  assert.equal(tokenResponse.status, 200, JSON.stringify(tokenPayload));
+  assert.equal(tokenPayload.session_id, oauthSessionId);
+
+  const correlatedAttempts = await db
+    .select()
+    .from(oauthAttempts)
+    .where(and(eq(oauthAttempts.sessionId, oauthSessionId), eq(oauthAttempts.clientId, clientId)))
+    .orderBy(oauthAttempts.createdAt);
+  assert.deepEqual(correlatedAttempts.map((attempt) => attempt.path), ["/authorize", "/token"]);
+
   console.log("MCP smoke test passed");
-  console.log(JSON.stringify({ safeToolNames: names, capturedClientVersion: probeVersion }, null, 2));
+  console.log(JSON.stringify({ safeToolNames: names, capturedClientVersion: probeVersion, correlatedTokenSession: oauthSessionId }, null, 2));
 }
 
 main().catch((error) => {

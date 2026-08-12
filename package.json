@@ -9,6 +9,7 @@
     "db:migrate": "tsx scripts/migrate.ts",
     "db:seed": "tsx scripts/seed.ts",
     "db:repair-known-clients": "tsx scripts/repair-known-clients.ts",
+    "db:merge-token-sessions": "tsx scripts/merge-token-sessions.ts",
     "db:setup": "npm run db:migrate && npm run db:seed",
     "smoke:mcp": "tsx scripts/smoke-mcp.ts",
     "verify:local": "npm run db:migrate && npm run build && npm run smoke:mcp"

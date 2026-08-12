@@ -324,3 +324,64 @@ export async function hasDcrAttemptForSession(sessionId: string | null) {
 
   return rows.length > 0;
 }
+
+function tokenMatchesAuthorizeAttempt(token: { clientId: string | null; redirectUri: string | null }, attempt: OAuthAttempt) {
+  const clientMatches = Boolean(token.clientId && attempt.clientId === token.clientId);
+  const redirectMatches = Boolean(token.redirectUri && redirectUrisMatch(token.redirectUri, attempt.redirectUri));
+
+  if (token.clientId && token.redirectUri) return clientMatches && redirectMatches;
+  if (token.clientId) return clientMatches;
+  if (token.redirectUri) return redirectMatches;
+  return false;
+}
+
+function redirectUrisMatch(left: string | null, right: string | null) {
+  if (!left || !right) return false;
+  if (left === right) return true;
+
+  try {
+    const leftUrl = new URL(left);
+    const rightUrl = new URL(right);
+    const leftLoopback = leftUrl.hostname === "localhost" || leftUrl.hostname === "127.0.0.1";
+    const rightLoopback = rightUrl.hostname === "localhost" || rightUrl.hostname === "127.0.0.1";
+
+    if (!leftLoopback || !rightLoopback) return false;
+
+    return leftUrl.protocol === rightUrl.protocol
+      && leftUrl.port === rightUrl.port
+      && leftUrl.pathname === rightUrl.pathname
+      && leftUrl.search === rightUrl.search;
+  } catch {
+    return false;
+  }
+}
+
+export async function findRecentAuthorizeSessionForToken(input: {
+  clientId: string | null;
+  redirectUri: string | null;
+  createdAt?: string;
+  maxAgeMs?: number;
+}) {
+  const referenceTime = input.createdAt ? Date.parse(input.createdAt) : Date.now();
+  const maxAgeMs = input.maxAgeMs ?? 10 * 60 * 1000;
+
+  if (!input.clientId && !input.redirectUri) return null;
+
+  const candidates = await db
+    .select()
+    .from(oauthAttempts)
+    .where(eq(oauthAttempts.path, "/authorize"))
+    .orderBy(desc(oauthAttempts.createdAt))
+    .limit(200);
+
+  const match = candidates.find((attempt) => {
+    if (!attempt.sessionId) return false;
+    const attemptTime = Date.parse(attempt.createdAt);
+    if (!Number.isFinite(attemptTime)) return false;
+    if (attemptTime > referenceTime) return false;
+    if (referenceTime - attemptTime > maxAgeMs) return false;
+    return tokenMatchesAuthorizeAttempt(input, attempt);
+  });
+
+  return match?.sessionId ?? null;
+}
