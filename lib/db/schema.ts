@@ -34,6 +34,8 @@ export const oauthAttempts = sqliteTable("oauth_attempts", {
   codeChallenge: text("code_challenge"),
   codeChallengeMethod: text("code_challenge_method"),
   userAgent: text("user_agent"),
+  clientName: text("client_name"),
+  clientVersion: text("client_version"),
   classification: text("classification"),
   rawQueryJson: text("raw_query_json"),
   rawBodyJson: text("raw_body_json")

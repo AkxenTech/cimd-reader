@@ -3,10 +3,12 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { cimdValidationResults, oauthAttempts } from "@/lib/db/schema";
 import { ensureSession, hasDcrAttemptForSession } from "@/lib/db/queries";
+import { clientSignalFromRawMetadata, clientSignalFromUserAgent } from "@/lib/oauth/client-signal";
 import { classifyAuthorizeRequest, isHttpsUrl } from "@/lib/oauth/classify";
 import { getBaseUrl } from "@/lib/oauth/base-url";
 import { searchParamsToRecord } from "@/lib/oauth/parse";
 import { validateCimdDocument } from "@/lib/oauth/cimd-validator";
+import { eq } from "drizzle-orm";
 
 export const runtime = "nodejs";
 
@@ -20,6 +22,8 @@ export async function GET(request: NextRequest) {
   const classification = classifyAuthorizeRequest(clientId, hadDcrAttempt);
   const now = new Date().toISOString();
   const attemptId = crypto.randomUUID();
+  const userAgent = request.headers.get("user-agent");
+  const userAgentSignal = clientSignalFromUserAgent(userAgent);
 
   await ensureSession(sessionId, url.searchParams.get("label"));
   await db.insert(oauthAttempts).values({
@@ -36,7 +40,9 @@ export async function GET(request: NextRequest) {
     resource: url.searchParams.get("resource"),
     codeChallenge: url.searchParams.get("code_challenge"),
     codeChallengeMethod: url.searchParams.get("code_challenge_method"),
-    userAgent: request.headers.get("user-agent"),
+    userAgent,
+    clientName: userAgentSignal.clientName,
+    clientVersion: userAgentSignal.clientVersion,
     classification,
     rawQueryJson: JSON.stringify(searchParamsToRecord(url.searchParams)),
     rawBodyJson: null
@@ -56,6 +62,17 @@ export async function GET(request: NextRequest) {
       rawMetadataJson: validation.rawMetadataJson,
       createdAt: new Date().toISOString()
     });
+
+    const metadataSignal = clientSignalFromRawMetadata(validation.rawMetadataJson);
+    if (metadataSignal.clientName || metadataSignal.clientVersion) {
+      await db
+        .update(oauthAttempts)
+        .set({
+          clientName: metadataSignal.clientName ?? userAgentSignal.clientName,
+          clientVersion: metadataSignal.clientVersion ?? userAgentSignal.clientVersion
+        })
+        .where(eq(oauthAttempts.id, attemptId));
+    }
   }
 
   if (redirectUri) {

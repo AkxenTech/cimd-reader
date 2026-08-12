@@ -1,5 +1,8 @@
 import { getClientsWithLatestSignals, getSessions } from "@/lib/db/queries";
+import { db } from "@/lib/db";
+import { oauthAttempts } from "@/lib/db/schema";
 import { GITHUB_HANDLE, GITHUB_URL } from "@/lib/site";
+import { clientSignalFromUserAgent } from "@/lib/oauth/client-signal";
 
 export const MCP_PROTOCOL_VERSION = "2026-07-28";
 export const MCP_COMPAT_PROTOCOL_VERSION = "2025-11-25";
@@ -16,6 +19,11 @@ type JsonRpcRequest = {
   id?: JsonRpcId;
   method?: string;
   params?: Record<string, unknown>;
+};
+
+type ClientInfo = {
+  name?: unknown;
+  version?: unknown;
 };
 
 const serverInfo = {
@@ -155,6 +163,10 @@ function errorJson(id: JsonRpcId | undefined, code: number, message: string, sta
 
 function getRequestMeta(request: JsonRpcRequest) {
   return request.params?._meta as Record<string, unknown> | undefined;
+}
+
+function getClientInfo(request: JsonRpcRequest) {
+  return request.params?.clientInfo as ClientInfo | undefined;
 }
 
 function getParamsProtocolVersion(request: JsonRpcRequest) {
@@ -307,6 +319,34 @@ async function handleToolCall(
   return errorJson(id, -32602, `Unknown tool '${name}'`, 400);
 }
 
+async function recordMcpInitialize(httpRequest: Request, request: JsonRpcRequest) {
+  const clientInfo = getClientInfo(request);
+  const userAgent = httpRequest.headers.get("user-agent");
+  const userAgentSignal = clientSignalFromUserAgent(userAgent);
+
+  await db.insert(oauthAttempts).values({
+    id: crypto.randomUUID(),
+    sessionId: null,
+    createdAt: new Date().toISOString(),
+    path: "/mcp",
+    method: httpRequest.method,
+    clientId: null,
+    redirectUri: null,
+    responseType: null,
+    scope: null,
+    state: null,
+    resource: null,
+    codeChallenge: null,
+    codeChallengeMethod: null,
+    userAgent,
+    clientName: typeof clientInfo?.name === "string" ? clientInfo.name : userAgentSignal.clientName,
+    clientVersion: typeof clientInfo?.version === "string" ? clientInfo.version : userAgentSignal.clientVersion,
+    classification: "mcp",
+    rawQueryJson: null,
+    rawBodyJson: JSON.stringify(request)
+  });
+}
+
 export async function handleMcpRequest(httpRequest: Request, body: JsonRpcRequest, baseUrl: string) {
   if (body.jsonrpc !== "2.0" || typeof body.method !== "string") {
     return errorJson(body.id, -32600, "Invalid JSON-RPC request", 400);
@@ -340,6 +380,7 @@ export async function handleMcpRequest(httpRequest: Request, body: JsonRpcReques
   }
 
   if (body.method === "initialize") {
+    await recordMcpInitialize(httpRequest, body);
     const headers = protocolVersion === MCP_COMPAT_PROTOCOL_VERSION ? { "Mcp-Session-Id": MCP_LEGACY_SESSION_ID } : undefined;
     return resultJson(body.id, {
       protocolVersion,

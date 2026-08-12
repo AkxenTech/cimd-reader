@@ -23,6 +23,7 @@ export default async function SessionsPage() {
                 <th className="px-4 py-3">Label</th>
                 <th className="px-4 py-3">Latest event</th>
                 <th className="px-4 py-3">Behavior</th>
+                <th className="px-4 py-3">Client</th>
                 <th className="px-4 py-3">Client ID</th>
                 <th className="px-4 py-3">Created</th>
                 <th className="px-4 py-3">Attempts</th>
@@ -39,6 +40,14 @@ export default async function SessionsPage() {
                   <td className="px-4 py-3">{session.label ?? "Unlabeled"}</td>
                   <td className="px-4 py-3">{session.latestAttempt ? `${session.latestAttempt.method} ${session.latestAttempt.path}` : "None"}</td>
                   <td className="px-4 py-3">{displayClassification(session.latestAttempt)}</td>
+                  <td className="px-4 py-3">
+                    {session.latestAttempt?.clientName ? (
+                      <>
+                        {session.latestAttempt.clientName}
+                        {session.latestAttempt.clientVersion ? <span className="text-slate-500"> {session.latestAttempt.clientVersion}</span> : null}
+                      </>
+                    ) : "Unknown"}
+                  </td>
                   <td className="max-w-[220px] truncate px-4 py-3 font-mono text-xs">{session.latestAttempt?.clientId ?? "None"}</td>
                   <td className="px-4 py-3">{session.createdAt}</td>
                   <td className="px-4 py-3">{session.attemptCount}</td>

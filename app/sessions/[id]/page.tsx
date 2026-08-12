@@ -43,6 +43,8 @@ export default async function SessionDetailPage({ params }: { params: Promise<{ 
 
               <dl className="mt-4 grid gap-3 text-sm md:grid-cols-2">
                 <div><dt className="text-xs uppercase tracking-wide text-slate-500">Client ID</dt><dd className="mt-1 break-all">{attempt.clientId ?? "None"}</dd></div>
+                <div><dt className="text-xs uppercase tracking-wide text-slate-500">Client name</dt><dd className="mt-1 break-all">{attempt.clientName ?? "Unknown"}</dd></div>
+                <div><dt className="text-xs uppercase tracking-wide text-slate-500">Client version</dt><dd className="mt-1 break-all">{attempt.clientVersion ?? "Unknown"}</dd></div>
                 <div><dt className="text-xs uppercase tracking-wide text-slate-500">Redirect URI</dt><dd className="mt-1 break-all">{attempt.redirectUri ?? "None"}</dd></div>
                 <div><dt className="text-xs uppercase tracking-wide text-slate-500">Scope</dt><dd className="mt-1">{attempt.scope ?? "None"}</dd></div>
                 <div><dt className="text-xs uppercase tracking-wide text-slate-500">User agent</dt><dd className="mt-1 break-words">{attempt.userAgent ?? "Unknown"}</dd></div>

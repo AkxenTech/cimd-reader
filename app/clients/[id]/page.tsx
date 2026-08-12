@@ -101,6 +101,8 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
               <Field label="Timestamp" value={latestAttempt.createdAt} />
               <Field label="Path" value={`${latestAttempt.method} ${latestAttempt.path}`} />
               <Field label="Client ID" value={latestAttempt.clientId} />
+              <Field label="Client name" value={latestAttempt.clientName} />
+              <Field label="Client version" value={latestAttempt.clientVersion} />
               <Field label="Redirect URI" value={latestAttempt.redirectUri} />
               <Field label="Scope" value={latestAttempt.scope} />
               <Field label="PKCE" value={latestAttempt.codeChallengeMethod ? `${latestAttempt.codeChallengeMethod}: ${latestAttempt.codeChallenge}` : null} />

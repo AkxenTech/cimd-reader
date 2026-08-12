@@ -1,20 +1,32 @@
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
 import { client } from "../lib/db";
 
 async function main() {
-  const migration = readFileSync(join(process.cwd(), "drizzle/0001_initial.sql"), "utf8");
-  const statements = migration
-    .split(";")
-    .map((statement) => statement.trim())
-    .filter(Boolean);
+  const dir = join(process.cwd(), "drizzle");
+  const statements = readdirSync(dir)
+    .filter((file) => file.endsWith(".sql"))
+    .sort()
+    .flatMap((file) =>
+      readFileSync(join(dir, file), "utf8")
+        .split(";")
+        .map((statement) => statement.trim())
+        .filter(Boolean)
+    );
 
+  let applied = 0;
   for (const statement of statements) {
-    await client.execute(statement);
+    try {
+      await client.execute(statement);
+      applied += 1;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!/duplicate column name/i.test(message)) throw error;
+    }
   }
 
-  console.log(`Applied ${statements.length} migration statements.`);
+  console.log(`Applied ${applied} migration statements.`);
 }
 
 main()

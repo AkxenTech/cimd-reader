@@ -86,13 +86,16 @@ function observedBehavior(attempt: OAuthAttempt | null) {
 
 function observedEvidence(attempt: OAuthAttempt | null) {
   if (!attempt) return "No OAuth traffic observed yet.";
+  const version = attempt.clientVersion ? ` (${attempt.clientVersion})` : "";
+  const client = attempt.clientName ? `${attempt.clientName}${version}` : null;
   if (attempt.path === "/register") {
     const name = registeredClientName(attempt);
-    return `${name ?? "Client"} dynamically registered and received client_id ${attempt.clientId ?? "unknown"}.`;
+    return `${name ?? client ?? "Client"} dynamically registered and received client_id ${attempt.clientId ?? "unknown"}.`;
   }
-  if (attempt.classification === "cimd") return `Authorization used client_id metadata URL ${attempt.clientId}.`;
-  if (attempt.classification === "static") return `Authorization used static client_id ${attempt.clientId ?? "unknown"}.`;
-  if (observedBehavior(attempt) === "dcr") return `Authorization used dynamically registered client_id ${attempt.clientId ?? "unknown"}.`;
+  if (attempt.classification === "cimd") return `${client ? `${client} authorization used` : "Authorization used"} client_id metadata URL ${attempt.clientId}.`;
+  if (attempt.classification === "static") return `${client ? `${client} authorization used` : "Authorization used"} static client_id ${attempt.clientId ?? "unknown"}.`;
+  if (observedBehavior(attempt) === "dcr") return `${client ? `${client} authorization used` : "Authorization used"} dynamically registered client_id ${attempt.clientId ?? "unknown"}.`;
+  if (attempt.classification === "mcp") return `${client ?? "MCP client"} initialized the authenticated MCP session.`;
   return `Latest OAuth event was ${attempt.method} ${attempt.path}.`;
 }
 

@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import { oauthAttempts } from "@/lib/db/schema";
 import { ensureSession } from "@/lib/db/queries";
 import { mcpResourceUrl } from "@/lib/mcp/protocol";
+import { clientSignalFromPayload } from "@/lib/oauth/client-signal";
 import { getBaseUrl } from "@/lib/oauth/base-url";
 import { requestBodyToRecord } from "@/lib/oauth/parse";
 
@@ -15,6 +16,8 @@ export async function POST(request: NextRequest) {
   const sessionId = typeof rawRecord.session_id === "string" ? rawRecord.session_id : crypto.randomUUID();
   const resource = typeof rawRecord.resource === "string" ? rawRecord.resource : null;
   const expectedResource = mcpResourceUrl(getBaseUrl(request));
+  const userAgent = request.headers.get("user-agent");
+  const clientSignal = clientSignalFromPayload(rawRecord, userAgent);
 
   if (resource && resource !== expectedResource) {
     return NextResponse.json({ error: "invalid_target", error_description: "resource does not match this MCP server" }, { status: 400 });
@@ -35,7 +38,9 @@ export async function POST(request: NextRequest) {
     resource,
     codeChallenge: null,
     codeChallengeMethod: null,
-    userAgent: request.headers.get("user-agent"),
+    userAgent,
+    clientName: clientSignal.clientName,
+    clientVersion: clientSignal.clientVersion,
     classification: null,
     rawQueryJson: null,
     rawBodyJson: JSON.stringify(rawRecord)

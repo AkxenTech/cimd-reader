@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { db } from "@/lib/db";
 import { oauthAttempts } from "@/lib/db/schema";
 import { ensureSession } from "@/lib/db/queries";
+import { clientSignalFromPayload } from "@/lib/oauth/client-signal";
 import { requestBodyToRecord } from "@/lib/oauth/parse";
 
 export const runtime = "nodejs";
@@ -34,6 +35,8 @@ export async function POST(request: NextRequest) {
   const scope = typeof rawRecord.scope === "string" ? rawRecord.scope : "cimd:read";
   const clientName = typeof rawRecord.client_name === "string" ? rawRecord.client_name : "DCR test client";
   const registeredClientId = slugClientId(clientName);
+  const userAgent = request.headers.get("user-agent");
+  const clientSignal = clientSignalFromPayload(rawRecord, userAgent);
 
   await ensureSession(sessionId, "Dynamic Client Registration");
   await db.insert(oauthAttempts).values({
@@ -50,7 +53,9 @@ export async function POST(request: NextRequest) {
     resource: null,
     codeChallenge: null,
     codeChallengeMethod: null,
-    userAgent: request.headers.get("user-agent"),
+    userAgent,
+    clientName: clientSignal.clientName ?? clientName,
+    clientVersion: clientSignal.clientVersion,
     classification: "dcr",
     rawQueryJson: JSON.stringify(Object.fromEntries(url.searchParams.entries())),
     rawBodyJson: JSON.stringify(rawRecord)
