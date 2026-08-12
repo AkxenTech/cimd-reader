@@ -155,7 +155,9 @@ export async function getClientDetail(id: string) {
 }
 
 function observedSignalsForClient(client: McpClient, attempts: OAuthAttempt[], results: (typeof cimdValidationResults.$inferSelect)[]) {
-  const matchingAttempts = attempts.filter((attempt) => directAttemptMatchesClient(attempt, client, results) || dcrAttemptMatchesClient(attempt, client));
+  const directlyMatchingAttempts = attempts.filter((attempt) => directAttemptMatchesClient(attempt, client, results) || dcrAttemptMatchesClient(attempt, client));
+  const matchingSessionIds = new Set(directlyMatchingAttempts.map((attempt) => attempt.sessionId).filter(Boolean));
+  const matchingAttempts = attempts.filter((attempt) => directlyMatchingAttempts.includes(attempt) || (attempt.sessionId && matchingSessionIds.has(attempt.sessionId)));
   const behaviorAttempts = matchingAttempts.filter((attempt) => attempt.path === "/register" || attempt.classification);
   const latestAttempt = matchingAttempts[0] ?? null;
   const latestCimdAttempt = matchingAttempts.find((attempt) => attempt.classification === "cimd") ?? null;
