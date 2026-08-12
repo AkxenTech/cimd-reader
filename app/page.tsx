@@ -154,6 +154,22 @@ codex mcp login cimd_reader`}</pre>
                   <dd className="mt-1 text-slate-800">{client.observedEvidence}</dd>
                 </div>
                 <div>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Latest user agent</dt>
+                  <dd className="mt-1 break-words font-mono text-xs text-slate-700">{client.latestAttempt?.userAgent ?? "Not observed"}</dd>
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Latest event</dt>
+                    <dd className="mt-1 text-slate-800">
+                      {client.latestAttempt ? `${client.latestAttempt.method} ${client.latestAttempt.path}` : "Not observed"}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Client version</dt>
+                    <dd className="mt-1 text-slate-800">{client.latestAttempt?.clientVersion ?? "Unknown"}</dd>
+                  </div>
+                </div>
+                <div>
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Claimed status</dt>
                   <dd className="mt-1 text-slate-800">{client.supportStatus.replace("_", " ")}</dd>
                 </div>

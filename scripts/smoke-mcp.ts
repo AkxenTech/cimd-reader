@@ -1,0 +1,137 @@
+import assert from "node:assert/strict";
+
+import { desc } from "drizzle-orm";
+
+import { db } from "../lib/db";
+import { oauthAttempts } from "../lib/db/schema";
+import { handleMcpRequest } from "../lib/mcp/protocol";
+
+const baseUrl = "http://localhost:3000";
+const safeToolNamePattern = /^[A-Za-z0-9_-]{1,64}$/;
+
+type JsonRpcResponse = {
+  result?: Record<string, unknown>;
+  error?: unknown;
+};
+
+async function invoke(body: Record<string, unknown>, headers: Record<string, string>) {
+  const request = new Request(`${baseUrl}/mcp`, {
+    method: "POST",
+    headers: {
+      authorization: "Bearer test-access-token",
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      ...headers
+    }
+  });
+
+  const response = await handleMcpRequest(request, body, baseUrl);
+  const payload = (await response.json()) as JsonRpcResponse;
+  assert.equal(response.status, 200, JSON.stringify(payload));
+  assert.equal(payload.error, undefined, JSON.stringify(payload.error));
+
+  return { response, payload };
+}
+
+function toolNames(payload: JsonRpcResponse) {
+  const tools = payload.result?.tools;
+  assert.ok(Array.isArray(tools), "tools/list did not return a tools array");
+  return tools.map((tool) => {
+    assert.equal(typeof tool.name, "string");
+    return tool.name as string;
+  });
+}
+
+async function main() {
+  const probeVersion = `local-${Date.now()}`;
+
+  const legacyInitialize = await invoke(
+    {
+      jsonrpc: "2.0",
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-11-25",
+        capabilities: {},
+        clientInfo: { name: "Local MCP Smoke", version: probeVersion }
+      },
+      id: 1
+    },
+    {
+      "mcp-protocol-version": "2025-11-25",
+      "user-agent": `LocalSmoke/${probeVersion}`
+    }
+  );
+  assert.equal(legacyInitialize.payload.result?.protocolVersion, "2025-11-25");
+  assert.equal(legacyInitialize.response.headers.get("mcp-session-id"), "cimd-reader-legacy-session");
+  assert.equal(legacyInitialize.payload.result?._meta, undefined);
+
+  const legacyTools = await invoke(
+    { jsonrpc: "2.0", method: "tools/list", params: {}, id: 2 },
+    { "mcp-protocol-version": "2025-11-25" }
+  );
+  const names = toolNames(legacyTools.payload);
+  assert.deepEqual(names, ["cimd_server_info", "cimd_clients_list", "cimd_sessions_list"]);
+  assert.equal(names.every((name) => safeToolNamePattern.test(name)), true);
+
+  const legacyToolCall = await invoke(
+    { jsonrpc: "2.0", method: "tools/call", params: { name: "cimd_server_info", arguments: {} }, id: 3 },
+    { "mcp-protocol-version": "2025-11-25" }
+  );
+  assert.ok(Array.isArray(legacyToolCall.payload.result?.content));
+  assert.equal(legacyToolCall.payload.result?.structuredContent, undefined);
+
+  const dottedAliasCall = await invoke(
+    { jsonrpc: "2.0", method: "tools/call", params: { name: "cimd.server.info", arguments: {} }, id: 4 },
+    { "mcp-protocol-version": "2025-11-25" }
+  );
+  assert.ok(Array.isArray(dottedAliasCall.payload.result?.content));
+
+  const modernTools = await invoke(
+    {
+      jsonrpc: "2.0",
+      method: "tools/list",
+      params: { _meta: { "io.modelcontextprotocol/clientInfo": { name: "Local MCP Smoke", version: probeVersion } } },
+      id: 5
+    },
+    {
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": "tools/list"
+    }
+  );
+  assert.ok(modernTools.payload.result?._meta);
+  assert.equal(modernTools.payload.result?.resultType, "complete");
+
+  const modernToolCall = await invoke(
+    {
+      jsonrpc: "2.0",
+      method: "tools/call",
+      params: {
+        name: "cimd_server_info",
+        arguments: {},
+        _meta: { "io.modelcontextprotocol/clientInfo": { name: "Local MCP Smoke", version: probeVersion } }
+      },
+      id: 6
+    },
+    {
+      "mcp-protocol-version": "2026-07-28",
+      "mcp-method": "tools/call",
+      "mcp-name": "cimd_server_info"
+    }
+  );
+  assert.ok(modernToolCall.payload.result?._meta);
+  assert.ok(modernToolCall.payload.result?.structuredContent);
+
+  const [latest] = await db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt)).limit(1);
+  assert.equal(latest.path, "/mcp");
+  assert.equal(latest.classification, "mcp");
+  assert.equal(latest.clientName, "Local MCP Smoke");
+  assert.equal(latest.clientVersion, probeVersion);
+
+  console.log("MCP smoke test passed");
+  console.log(JSON.stringify({ safeToolNames: names, capturedClientVersion: probeVersion }, null, 2));
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

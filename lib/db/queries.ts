@@ -77,6 +77,11 @@ function directAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient, re
   return directIds.includes(attempt.clientId) || cimdAttemptMatchesClient(attempt, client, results);
 }
 
+function resultForAttempt(attempt: OAuthAttempt | null, results: (typeof cimdValidationResults.$inferSelect)[]) {
+  if (!attempt) return null;
+  return results.find((result) => result.attemptId === attempt.id) ?? null;
+}
+
 function observedBehavior(attempt: OAuthAttempt | null) {
   if (!attempt) return "unknown";
   if (attempt.path === "/register") return "dcr";
@@ -127,17 +132,25 @@ export async function getClientDetail(id: string) {
 function observedSignalsForClient(client: McpClient, attempts: OAuthAttempt[], results: (typeof cimdValidationResults.$inferSelect)[]) {
   const matchingAttempts = attempts.filter((attempt) => directAttemptMatchesClient(attempt, client, results) || dcrAttemptMatchesClient(attempt, client));
   const behaviorAttempts = matchingAttempts.filter((attempt) => attempt.path === "/register" || attempt.classification);
-  const latestAttempt = behaviorAttempts[0] ?? matchingAttempts[0] ?? null;
-  const latestValidation = matchingAttempts.length
-    ? results.find((result) => matchingAttempts.some((attempt) => attempt.id === result.attemptId)) ?? null
-    : null;
-  const behavior = observedBehavior(latestAttempt);
+  const latestAttempt = matchingAttempts[0] ?? null;
+  const latestCimdAttempt = matchingAttempts.find((attempt) => attempt.classification === "cimd") ?? null;
+  const statusAttempt = latestCimdAttempt ?? behaviorAttempts[0] ?? latestAttempt;
+  const latestCimdValidation = resultForAttempt(latestCimdAttempt, results);
+  const latestValidation = latestCimdValidation ?? (
+    matchingAttempts.length
+      ? results.find((result) => matchingAttempts.some((attempt) => attempt.id === result.attemptId)) ?? null
+      : null
+  );
+  const behavior = latestCimdAttempt ? "cimd" : observedBehavior(statusAttempt);
 
   return {
     latestAttempt,
+    statusAttempt,
+    latestCimdAttempt,
     latestValidation,
+    latestCimdValidation,
     observedBehavior: behavior,
-    observedEvidence: observedEvidence(latestAttempt),
+    observedEvidence: observedEvidence(statusAttempt),
     observedAt: latestAttempt?.createdAt ?? latestValidation?.createdAt ?? null
   };
 }
@@ -162,6 +175,37 @@ export async function getSessions() {
 
 export function displayClassification(attempt: OAuthAttempt | null) {
   return observedBehavior(attempt);
+}
+
+export function clientTypeForAttempt(attempt: OAuthAttempt | null) {
+  if (!attempt) return "Unknown client";
+
+  const registeredName = registeredClientName(attempt);
+  if (attempt.clientName) return attempt.clientName;
+  if (registeredName) return registeredName;
+
+  if (attempt.clientId && attempt.clientId.startsWith("https://")) {
+    try {
+      return new URL(attempt.clientId).hostname.replace(/^www\./, "");
+    } catch {
+      return attempt.clientId;
+    }
+  }
+
+  if (attempt.userAgent) {
+    const product = attempt.userAgent.match(/([A-Za-z][A-Za-z0-9._-]*)\/[^\s()]+/);
+    if (product?.[1]) return product[1];
+  }
+
+  if (attempt.path === "/register" || observedBehavior(attempt) === "dcr") return "DCR client";
+  if (attempt.classification === "static") return "Static client";
+  if (attempt.classification === "cimd") return "CIMD client";
+  if (attempt.classification === "mcp") return "MCP client";
+  return "Unknown client";
+}
+
+export function clientVersionForAttempt(attempt: OAuthAttempt | null) {
+  return attempt?.clientVersion ?? null;
 }
 
 export async function getSessionTimeline(id: string) {
