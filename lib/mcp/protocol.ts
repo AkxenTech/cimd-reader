@@ -6,7 +6,8 @@ import { clientSignalFromUserAgent } from "@/lib/oauth/client-signal";
 
 export const MCP_PROTOCOL_VERSION = "2026-07-28";
 export const MCP_COMPAT_PROTOCOL_VERSION = "2025-11-25";
-export const MCP_SUPPORTED_PROTOCOL_VERSIONS = [MCP_PROTOCOL_VERSION, MCP_COMPAT_PROTOCOL_VERSION] as const;
+export const MCP_LEGACY_PROTOCOL_VERSIONS = [MCP_COMPAT_PROTOCOL_VERSION, "2025-06-18", "2025-03-26"] as const;
+export const MCP_SUPPORTED_PROTOCOL_VERSIONS = [MCP_PROTOCOL_VERSION, ...MCP_LEGACY_PROTOCOL_VERSIONS] as const;
 export const MCP_SCOPE = "cimd:read";
 export const MCP_ACCESS_TOKEN = "test-access-token";
 const MCP_LEGACY_SESSION_ID = "cimd-reader-legacy-session";
@@ -129,7 +130,7 @@ function jsonRpcError(id: JsonRpcId | undefined, code: number, message: string, 
 }
 
 function jsonRpcResult(id: JsonRpcId, result: Record<string, unknown>, protocolVersion: SupportedProtocolVersion) {
-  if (protocolVersion === MCP_COMPAT_PROTOCOL_VERSION) {
+  if (isLegacyProtocolVersion(protocolVersion)) {
     return {
       jsonrpc: "2.0",
       id,
@@ -191,8 +192,17 @@ function isSupportedProtocolVersion(version: string) {
   return MCP_SUPPORTED_PROTOCOL_VERSIONS.includes(version as (typeof MCP_SUPPORTED_PROTOCOL_VERSIONS)[number]);
 }
 
+function isLegacyProtocolVersion(version: string): version is (typeof MCP_LEGACY_PROTOCOL_VERSIONS)[number] {
+  return MCP_LEGACY_PROTOCOL_VERSIONS.includes(version as (typeof MCP_LEGACY_PROTOCOL_VERSIONS)[number]);
+}
+
+function hasLegacySession(httpRequest: Request) {
+  return httpRequest.headers.get("mcp-session-id") === MCP_LEGACY_SESSION_ID;
+}
+
 function negotiatedProtocolVersion(httpRequest: Request, rpcRequest: JsonRpcRequest): SupportedProtocolVersion {
   const requested = getRequestedProtocolVersions(httpRequest, rpcRequest);
+  if (requested.length === 0 && hasLegacySession(httpRequest)) return MCP_COMPAT_PROTOCOL_VERSION;
   return (requested.find(isSupportedProtocolVersion) as SupportedProtocolVersion | undefined) ?? MCP_PROTOCOL_VERSION;
 }
 
@@ -212,9 +222,15 @@ function validateRequiredHeaders(httpRequest: Request, rpcRequest: JsonRpcReques
   const nameHeader = httpRequest.headers.get("mcp-name");
   const bodyProtocol = rpcRequest.method === "initialize" ? getParamsProtocolVersion(rpcRequest) : getMetaProtocolVersion(rpcRequest);
 
-  if (!protocolHeader) return "Header mismatch: MCP-Protocol-Version header is missing";
+  if (!protocolHeader) {
+    if (bodyProtocol === MCP_PROTOCOL_VERSION) return "Header mismatch: MCP-Protocol-Version header is missing";
+    return null;
+  }
   if (protocolHeader !== MCP_PROTOCOL_VERSION) {
     return null;
+  }
+  if (!bodyProtocol) {
+    return "Header mismatch: request protocolVersion metadata is missing";
   }
   if (bodyProtocol && bodyProtocol !== protocolHeader) {
     return `Header mismatch: MCP-Protocol-Version header value '${protocolHeader}' does not match request protocolVersion`;
@@ -251,6 +267,7 @@ function validateProtocolVersion(httpRequest: Request, request: JsonRpcRequest) 
   }
 
   if (requestedVersions.length > 0) return null;
+  if (hasLegacySession(httpRequest)) return null;
 
   return {
     code: -32022,
@@ -267,7 +284,7 @@ function toolResult(
   content: Array<{ type: "text"; text: string }>,
   structuredContent: Record<string, unknown>
 ) {
-  if (protocolVersion === MCP_COMPAT_PROTOCOL_VERSION) {
+  if (isLegacyProtocolVersion(protocolVersion)) {
     return resultJson(id, { content, isError: false }, 200, protocolVersion);
   }
 
@@ -381,17 +398,17 @@ export async function handleMcpRequest(httpRequest: Request, body: JsonRpcReques
 
   if (body.method === "initialize") {
     await recordMcpInitialize(httpRequest, body);
-    const headers = protocolVersion === MCP_COMPAT_PROTOCOL_VERSION ? { "Mcp-Session-Id": MCP_LEGACY_SESSION_ID } : undefined;
+    const headers = isLegacyProtocolVersion(protocolVersion) ? { "Mcp-Session-Id": MCP_LEGACY_SESSION_ID } : undefined;
     return resultJson(body.id, {
       protocolVersion,
       capabilities: { tools: { listChanged: false } },
-      serverInfo: protocolVersion === MCP_COMPAT_PROTOCOL_VERSION ? legacyServerInfo : serverInfo,
+      serverInfo: isLegacyProtocolVersion(protocolVersion) ? legacyServerInfo : serverInfo,
       instructions: "Use this server to inspect CIMD/OAuth behavior captured by the public dashboard."
     }, 200, protocolVersion, headers);
   }
 
   if (body.method === "tools/list") {
-    if (protocolVersion === MCP_COMPAT_PROTOCOL_VERSION) {
+    if (isLegacyProtocolVersion(protocolVersion)) {
       return resultJson(body.id, { tools: legacyTools }, 200, protocolVersion);
     }
 

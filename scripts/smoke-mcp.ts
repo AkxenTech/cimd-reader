@@ -82,6 +82,31 @@ async function main() {
   assert.ok(Array.isArray(legacyToolCall.payload.result?.content));
   assert.equal(legacyToolCall.payload.result?.structuredContent, undefined);
 
+  const sessionOnlyLegacyTools = await invoke(
+    { jsonrpc: "2.0", method: "tools/list", params: {}, id: 31 },
+    { "mcp-session-id": "cimd-reader-legacy-session" }
+  );
+  assert.deepEqual(toolNames(sessionOnlyLegacyTools.payload), names);
+
+  const midLegacyInitialize = await invoke(
+    {
+      jsonrpc: "2.0",
+      method: "initialize",
+      params: {
+        protocolVersion: "2025-06-18",
+        capabilities: {},
+        clientInfo: { name: "Local MCP Smoke", version: probeVersion }
+      },
+      id: 32
+    },
+    {
+      "mcp-protocol-version": "2025-06-18",
+      "user-agent": `LocalSmoke/${probeVersion}`
+    }
+  );
+  assert.equal(midLegacyInitialize.payload.result?.protocolVersion, "2025-06-18");
+  assert.equal(midLegacyInitialize.response.headers.get("mcp-session-id"), "cimd-reader-legacy-session");
+
   const dottedAliasCall = await invoke(
     { jsonrpc: "2.0", method: "tools/call", params: { name: "cimd.server.info", arguments: {} }, id: 4 },
     { "mcp-protocol-version": "2025-11-25" }
@@ -92,7 +117,12 @@ async function main() {
     {
       jsonrpc: "2.0",
       method: "tools/list",
-      params: { _meta: { "io.modelcontextprotocol/clientInfo": { name: "Local MCP Smoke", version: probeVersion } } },
+      params: {
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { name: "Local MCP Smoke", version: probeVersion }
+        }
+      },
       id: 5
     },
     {
@@ -110,7 +140,10 @@ async function main() {
       params: {
         name: "cimd_server_info",
         arguments: {},
-        _meta: { "io.modelcontextprotocol/clientInfo": { name: "Local MCP Smoke", version: probeVersion } }
+        _meta: {
+          "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+          "io.modelcontextprotocol/clientInfo": { name: "Local MCP Smoke", version: probeVersion }
+        }
       },
       id: 6
     },
