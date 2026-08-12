@@ -4,6 +4,7 @@ import { db } from "@/lib/db";
 import {
   cimdValidationResults,
   mcpClients,
+  oauthClientRegistrations,
   oauthAttempts,
   validationSessions
 } from "@/lib/db/schema";
@@ -99,7 +100,9 @@ function cimdAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient, resu
 
 function directAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient, results: (typeof cimdValidationResults.$inferSelect)[]) {
   const directIds = [client.id, client.metadataUrl].filter(Boolean);
-  return directIds.includes(attempt.clientId) || cimdAttemptMatchesClient(attempt, client, results);
+  return directIds.includes(attempt.clientId)
+    || attempt.clientId === `dcr-${client.id}`
+    || cimdAttemptMatchesClient(attempt, client, results);
 }
 
 function resultForAttempt(attempt: OAuthAttempt | null, results: (typeof cimdValidationResults.$inferSelect)[]) {
@@ -133,8 +136,9 @@ export async function getClientsWithLatestSignals() {
   const clients = await db.select().from(mcpClients).orderBy(mcpClients.name);
   const attempts = await db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt));
   const results = await db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt));
+  const observedClients = syntheticClientsFromAttempts(attempts, results, clients);
 
-  return clients.map((client) => ({
+  return [...clients, ...observedClients].map((client) => ({
     ...client,
     ...observedSignalsForClient(client, attempts, results)
   }));
@@ -142,16 +146,64 @@ export async function getClientsWithLatestSignals() {
 
 export async function getClientDetail(id: string) {
   const [client] = await db.select().from(mcpClients).where(eq(mcpClients.id, id)).limit(1);
-  if (!client) return null;
 
   const attempts = await db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt));
   const results = await db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt));
-  const signals = observedSignalsForClient(client, attempts, results);
+  const resolvedClient = client ?? syntheticClientsFromAttempts(attempts, results, []).find((item) => item.id === id);
+  if (!resolvedClient) return null;
+  const signals = observedSignalsForClient(resolvedClient, attempts, results);
 
   return {
-    client,
+    client: resolvedClient,
     ...signals
   };
+}
+
+function syntheticClientsFromAttempts(
+  attempts: OAuthAttempt[],
+  results: (typeof cimdValidationResults.$inferSelect)[],
+  existingClients: McpClient[]
+) {
+  const existingKeys = new Set(existingClients.flatMap((client) => [
+    client.id,
+    canonicalClientKey(client.id),
+    canonicalClientKey(client.name),
+    canonicalClientKey(client.vendor)
+  ].filter((value): value is string => Boolean(value))));
+  const clients = new Map<string, McpClient>();
+
+  for (const attempt of attempts) {
+    const candidate = clientTypeCandidate(attempt, results);
+    const dcrKey = attempt.clientId?.startsWith("dcr-") ? canonicalClientKey(attempt.clientId.slice(4)) : null;
+    const key = dcrKey ?? canonicalClientKey(candidate);
+    if (!key || key === "unknown-client" || existingKeys.has(key) || clients.has(key)) continue;
+
+    const name = registeredClientName(attempt) ?? attempt.clientName ?? (dcrKey ? titleFromClientKey(key) : displayClientType(candidate));
+    if (name === "Unknown client") continue;
+
+    clients.set(key, {
+      id: key,
+      name,
+      category: normalize(name).includes("cli") ? "CLI" : "Tool",
+      vendor: null,
+      supportStatus: "unknown",
+      metadataUrl: null,
+      sourceUrl: null,
+      notes: "Observed from OAuth traffic.",
+      createdAt: attempt.createdAt,
+      updatedAt: attempt.createdAt
+    });
+  }
+
+  return [...clients.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function titleFromClientKey(key: string) {
+  return key
+    .split("-")
+    .filter(Boolean)
+    .map((part) => part.toLowerCase() === "cli" ? "CLI" : `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
+    .join(" ");
 }
 
 function observedSignalsForClient(client: McpClient, attempts: OAuthAttempt[], results: (typeof cimdValidationResults.$inferSelect)[]) {
@@ -326,6 +378,48 @@ export async function ensureSession(id: string, label?: string | null) {
     .onConflictDoNothing();
 }
 
+export async function upsertDcrRegistration(input: {
+  clientId: string;
+  clientName: string | null;
+  redirectUris: string[];
+  rawBody: Record<string, unknown>;
+  sessionId: string | null;
+}) {
+  const now = new Date().toISOString();
+  await db
+    .insert(oauthClientRegistrations)
+    .values({
+      clientId: input.clientId,
+      clientName: input.clientName,
+      redirectUrisJson: JSON.stringify(input.redirectUris),
+      rawBodyJson: JSON.stringify(input.rawBody),
+      lastSessionId: input.sessionId,
+      createdAt: now,
+      updatedAt: now
+    })
+    .onConflictDoUpdate({
+      target: oauthClientRegistrations.clientId,
+      set: {
+        clientName: input.clientName,
+        redirectUrisJson: JSON.stringify(input.redirectUris),
+        rawBodyJson: JSON.stringify(input.rawBody),
+        lastSessionId: input.sessionId,
+        updatedAt: now
+      }
+    });
+}
+
+export async function getDcrRegistration(clientId: string | null) {
+  if (!clientId) return null;
+  const [registration] = await db
+    .select()
+    .from(oauthClientRegistrations)
+    .where(eq(oauthClientRegistrations.clientId, clientId))
+    .limit(1);
+
+  return registration ?? null;
+}
+
 export async function hasDcrAttemptForSession(sessionId: string | null) {
   if (!sessionId) return false;
   const rows = await db
@@ -335,6 +429,10 @@ export async function hasDcrAttemptForSession(sessionId: string | null) {
     .limit(1);
 
   return rows.length > 0;
+}
+
+export async function hasDcrRegistration(clientId: string | null) {
+  return Boolean(await getDcrRegistration(clientId));
 }
 
 function tokenMatchesAuthorizeAttempt(token: { clientId: string | null; redirectUri: string | null }, attempt: OAuthAttempt) {

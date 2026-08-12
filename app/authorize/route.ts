@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
 import { cimdValidationResults, oauthAttempts } from "@/lib/db/schema";
-import { ensureSession, hasDcrAttemptForSession } from "@/lib/db/queries";
+import { ensureSession, getDcrRegistration, hasDcrAttemptForSession } from "@/lib/db/queries";
 import { clientSignalFromRawMetadata, clientSignalFromUserAgent } from "@/lib/oauth/client-signal";
 import { classifyAuthorizeRequest, isHttpsUrl } from "@/lib/oauth/classify";
 import { getBaseUrl } from "@/lib/oauth/base-url";
@@ -19,7 +19,8 @@ export async function GET(request: NextRequest) {
   const redirectUri = url.searchParams.get("redirect_uri");
   const state = url.searchParams.get("state");
   const hadDcrAttempt = await hasDcrAttemptForSession(sessionId);
-  const classification = classifyAuthorizeRequest(clientId, hadDcrAttempt);
+  const dcrRegistration = await getDcrRegistration(clientId);
+  const classification = classifyAuthorizeRequest(clientId, hadDcrAttempt || Boolean(dcrRegistration));
   const now = new Date().toISOString();
   const attemptId = crypto.randomUUID();
   const userAgent = request.headers.get("user-agent");
@@ -41,7 +42,7 @@ export async function GET(request: NextRequest) {
     codeChallenge: url.searchParams.get("code_challenge"),
     codeChallengeMethod: url.searchParams.get("code_challenge_method"),
     userAgent,
-    clientName: userAgentSignal.clientName,
+    clientName: dcrRegistration?.clientName ?? userAgentSignal.clientName,
     clientVersion: userAgentSignal.clientVersion,
     classification,
     rawQueryJson: JSON.stringify(searchParamsToRecord(url.searchParams)),

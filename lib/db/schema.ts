@@ -41,6 +41,16 @@ export const oauthAttempts = sqliteTable("oauth_attempts", {
   rawBodyJson: text("raw_body_json")
 });
 
+export const oauthClientRegistrations = sqliteTable("oauth_client_registrations", {
+  clientId: text("client_id").primaryKey(),
+  clientName: text("client_name"),
+  redirectUrisJson: text("redirect_uris_json").notNull(),
+  rawBodyJson: text("raw_body_json").notNull(),
+  lastSessionId: text("last_session_id"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull()
+});
+
 export const cimdValidationResults = sqliteTable("cimd_validation_results", {
   id: text("id").primaryKey(),
   attemptId: text("attempt_id").notNull(),
@@ -56,5 +66,6 @@ export const cimdValidationResults = sqliteTable("cimd_validation_results", {
 
 export type McpClient = typeof mcpClients.$inferSelect;
 export type OAuthAttempt = typeof oauthAttempts.$inferSelect;
+export type OAuthClientRegistration = typeof oauthClientRegistrations.$inferSelect;
 export type CimdValidationResult = typeof cimdValidationResults.$inferSelect;
 export type ValidationSession = typeof validationSessions.$inferSelect;

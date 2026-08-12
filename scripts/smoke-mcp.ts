@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { and, desc, eq } from "drizzle-orm";
 
 import { GET as authorizeGet } from "../app/authorize/route";
+import { POST as registerPost } from "../app/register/route";
 import { POST as tokenPost } from "../app/token/route";
 import { db } from "../lib/db";
 import { oauthAttempts } from "../lib/db/schema";
@@ -196,6 +197,43 @@ async function main() {
     .where(and(eq(oauthAttempts.sessionId, oauthSessionId), eq(oauthAttempts.clientId, clientId)))
     .orderBy(oauthAttempts.createdAt);
   assert.deepEqual(correlatedAttempts.map((attempt) => attempt.path), ["/authorize", "/token"]);
+
+  const devinRegisterResponse = await registerPost(new Request(`${baseUrl}/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_name: "Devin CLI",
+      redirect_uris: ["http://127.0.0.1:8765/auth/callback"],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      scope: "cimd:read",
+      application_type: "native"
+    })
+  }) as never);
+  const devinRegistration = await devinRegisterResponse.json() as Record<string, unknown>;
+  assert.equal(devinRegisterResponse.status, 200);
+  assert.equal(devinRegistration.client_id, "dcr-devin-cli");
+  assert.deepEqual(devinRegistration.redirect_uris, [
+    "http://127.0.0.1:8765/auth/callback",
+    "http://localhost:8765/auth/callback"
+  ]);
+
+  const devinAuthorizeSession = crypto.randomUUID();
+  await authorizeGet(new Request(`${baseUrl}/authorize?${new URLSearchParams({
+    session_id: devinAuthorizeSession,
+    client_id: "dcr-devin-cli",
+    redirect_uri: "http://localhost:8765/auth/callback",
+    response_type: "code",
+    scope: "cimd:read"
+  })}`) as never);
+  const [devinAuthorizeAttempt] = await db
+    .select()
+    .from(oauthAttempts)
+    .where(and(eq(oauthAttempts.sessionId, devinAuthorizeSession), eq(oauthAttempts.clientId, "dcr-devin-cli")))
+    .limit(1);
+  assert.equal(devinAuthorizeAttempt.classification, "dcr");
+  assert.equal(devinAuthorizeAttempt.clientName, "Devin CLI");
 
   console.log("MCP smoke test passed");
   console.log(JSON.stringify({ safeToolNames: names, capturedClientVersion: probeVersion, correlatedTokenSession: oauthSessionId }, null, 2));

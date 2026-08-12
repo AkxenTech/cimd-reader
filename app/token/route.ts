@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
 import { oauthAttempts } from "@/lib/db/schema";
-import { ensureSession, findRecentAuthorizeSessionForToken } from "@/lib/db/queries";
+import { ensureSession, findRecentAuthorizeSessionForToken, getDcrRegistration } from "@/lib/db/queries";
 import { mcpResourceUrl } from "@/lib/mcp/protocol";
 import { clientSignalFromPayload } from "@/lib/oauth/client-signal";
 import { getBaseUrl } from "@/lib/oauth/base-url";
@@ -20,6 +20,7 @@ export async function POST(request: NextRequest) {
   const expectedResource = mcpResourceUrl(getBaseUrl(request));
   const userAgent = request.headers.get("user-agent");
   const clientSignal = clientSignalFromPayload(rawRecord, userAgent);
+  const dcrRegistration = await getDcrRegistration(clientId);
 
   if (resource && resource !== expectedResource) {
     return NextResponse.json({ error: "invalid_target", error_description: "resource does not match this MCP server" }, { status: 400 });
@@ -44,7 +45,7 @@ export async function POST(request: NextRequest) {
     codeChallenge: null,
     codeChallengeMethod: null,
     userAgent,
-    clientName: clientSignal.clientName,
+    clientName: dcrRegistration?.clientName ?? clientSignal.clientName,
     clientVersion: clientSignal.clientVersion,
     classification: null,
     rawQueryJson: null,

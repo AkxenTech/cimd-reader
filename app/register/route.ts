@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 
 import { db } from "@/lib/db";
 import { oauthAttempts } from "@/lib/db/schema";
-import { ensureSession } from "@/lib/db/queries";
+import { ensureSession, upsertDcrRegistration } from "@/lib/db/queries";
 import { clientSignalFromPayload } from "@/lib/oauth/client-signal";
 import { requestBodyToRecord } from "@/lib/oauth/parse";
 
@@ -18,6 +18,30 @@ function slugClientId(value: string) {
   return `dcr-${slug || "client"}`;
 }
 
+function withLoopbackAliases(redirectUris: string[]) {
+  const values = new Set(redirectUris);
+
+  for (const redirectUri of redirectUris) {
+    try {
+      const url = new URL(redirectUri);
+      if (url.hostname === "127.0.0.1") {
+        const alias = new URL(redirectUri);
+        alias.hostname = "localhost";
+        values.add(alias.toString());
+      }
+      if (url.hostname === "localhost") {
+        const alias = new URL(redirectUri);
+        alias.hostname = "127.0.0.1";
+        values.add(alias.toString());
+      }
+    } catch {
+      // Keep malformed redirect URIs visible in diagnostics, but do not invent aliases.
+    }
+  }
+
+  return [...values];
+}
+
 export async function POST(request: NextRequest) {
   const url = new URL(request.url);
   const { raw } = await requestBodyToRecord(request);
@@ -26,6 +50,7 @@ export async function POST(request: NextRequest) {
   const redirectUris = Array.isArray(rawRecord.redirect_uris) && rawRecord.redirect_uris.every((item) => typeof item === "string")
     ? rawRecord.redirect_uris
     : [];
+  const registeredRedirectUris = withLoopbackAliases(redirectUris);
   const responseTypes = Array.isArray(rawRecord.response_types) && rawRecord.response_types.every((item) => typeof item === "string")
     ? rawRecord.response_types
     : ["code"];
@@ -39,6 +64,13 @@ export async function POST(request: NextRequest) {
   const clientSignal = clientSignalFromPayload(rawRecord, userAgent);
 
   await ensureSession(sessionId, "Dynamic Client Registration");
+  await upsertDcrRegistration({
+    clientId: registeredClientId,
+    clientName,
+    redirectUris: registeredRedirectUris,
+    rawBody: rawRecord,
+    sessionId
+  });
   await db.insert(oauthAttempts).values({
     id: crypto.randomUUID(),
     sessionId,
@@ -46,7 +78,7 @@ export async function POST(request: NextRequest) {
     path: "/register",
     method: request.method,
     clientId: registeredClientId,
-    redirectUri: redirectUris.length ? redirectUris.join(", ") : null,
+    redirectUri: registeredRedirectUris.length ? registeredRedirectUris.join(", ") : null,
     responseType: responseTypes.join(" "),
     scope,
     state: null,
@@ -65,7 +97,7 @@ export async function POST(request: NextRequest) {
     client_id: registeredClientId,
     client_id_issued_at: 1710000000,
     client_name: clientName,
-    redirect_uris: redirectUris,
+    redirect_uris: registeredRedirectUris,
     grant_types: grantTypes,
     response_types: responseTypes,
     token_endpoint_auth_method: "none",
