@@ -117,10 +117,11 @@ function observedBehavior(attempt: OAuthAttempt | null) {
   return attempt.classification ?? "unknown";
 }
 
-function observedEvidence(attempt: OAuthAttempt | null) {
+function observedEvidence(attempt: OAuthAttempt | null, fallbackClientName?: string | null) {
   if (!attempt) return "No OAuth traffic observed yet.";
   const version = attempt.clientVersion ? ` (${attempt.clientVersion})` : "";
-  const client = attempt.clientName ? `${attempt.clientName}${version}` : null;
+  const clientName = attempt.clientName ?? fallbackClientName;
+  const client = clientName ? `${clientName}${version}` : null;
   if (attempt.path === "/register") {
     const name = registeredClientName(attempt);
     return `${name ?? client ?? "Client"} dynamically registered and received client_id ${attempt.clientId ?? "unknown"}.`;
@@ -229,7 +230,7 @@ function observedSignalsForClient(client: McpClient, attempts: OAuthAttempt[], r
     latestValidation,
     latestCimdValidation,
     observedBehavior: behavior,
-    observedEvidence: observedEvidence(statusAttempt),
+    observedEvidence: observedEvidence(statusAttempt, client.name),
     observedAt: latestAttempt?.createdAt ?? latestValidation?.createdAt ?? null
   };
 }
