@@ -10,6 +10,16 @@ import {
 } from "@/lib/db/schema";
 import type { McpClient, OAuthAttempt } from "@/lib/db/schema";
 
+const SUPPRESSED_CLIENT_KEYS = new Set([
+  "github-copilot",
+  "windsurf",
+  "example-app",
+  "example-client",
+  "test-client",
+  "test-client-id",
+  "dcr-test-client-id"
+]);
+
 function parseBodyJson(value: string | null | undefined) {
   if (!value) return null;
   try {
@@ -63,6 +73,13 @@ function displayClientType(value: string | null | undefined) {
   if (canonicalClientKey(value) === "github-copilot") return "GitHub Copilot";
 
   return value?.trim() || "Unknown client";
+}
+
+function isSuppressedClientKey(value: string | null | undefined) {
+  const key = canonicalClientKey(value);
+  if (!key) return false;
+  if (SUPPRESSED_CLIENT_KEYS.has(key)) return true;
+  return key.startsWith("example-") || key.startsWith("test-") || key.includes("-example-") || key.includes("-test-");
 }
 
 function registeredClientName(attempt: OAuthAttempt) {
@@ -134,7 +151,8 @@ function observedEvidence(attempt: OAuthAttempt | null, fallbackClientName?: str
 }
 
 export async function getClientsWithLatestSignals() {
-  const clients = await db.select().from(mcpClients).orderBy(mcpClients.name);
+  const clients = (await db.select().from(mcpClients).orderBy(mcpClients.name))
+    .filter((client) => !isSuppressedClientKey(client.id));
   const attempts = await db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt));
   const results = await db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt));
   const observedClients = syntheticClientsFromAttempts(promotableClientAttempts(attempts), results, clients);
@@ -146,6 +164,7 @@ export async function getClientsWithLatestSignals() {
 }
 
 export async function getClientDetail(id: string) {
+  if (isSuppressedClientKey(id)) return null;
   const [client] = await db.select().from(mcpClients).where(eq(mcpClients.id, id)).limit(1);
 
   const attempts = await db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt));
@@ -177,7 +196,7 @@ function syntheticClientsFromAttempts(
     const candidate = clientTypeCandidate(attempt, results);
     const dcrKey = attempt.clientId?.startsWith("dcr-") ? canonicalClientKey(attempt.clientId.slice(4)) : null;
     const key = dcrKey ?? canonicalClientKey(candidate);
-    if (!key || key === "unknown-client" || existingKeys.has(key) || clients.has(key)) continue;
+    if (!key || key === "unknown-client" || isSuppressedClientKey(key) || existingKeys.has(key) || clients.has(key)) continue;
 
     const name = registeredClientName(attempt) ?? attempt.clientName ?? (dcrKey ? titleFromClientKey(key) : displayClientType(candidate));
     if (name === "Unknown client") continue;

@@ -26,9 +26,7 @@ const clients = [
   },
   { id: "mcpjam", name: "MCPJam", category: "Debugger", vendor: "MCPJam", supportStatus: "unknown", metadataUrl: null, sourceUrl: null, notes: "Placeholder until validation traffic is captured." },
   { id: "cursor", name: "Cursor", category: "IDE", vendor: "Anysphere", supportStatus: "unknown", metadataUrl: null, sourceUrl: null, notes: "Placeholder until validation traffic is captured." },
-  { id: "codex-cli", name: "Codex CLI", category: "CLI", vendor: "OpenAI", supportStatus: "unknown", metadataUrl: null, sourceUrl: null, notes: "Placeholder until validation traffic is captured." },
-  { id: "github-copilot", name: "GitHub Copilot", category: "Assistant", vendor: "GitHub", supportStatus: "unknown", metadataUrl: null, sourceUrl: null, notes: "Placeholder until validation traffic is captured." },
-  { id: "windsurf", name: "Windsurf", category: "IDE", vendor: "Cognition", supportStatus: "unknown", metadataUrl: null, sourceUrl: null, notes: "Placeholder until validation traffic is captured." }
+  { id: "codex-cli", name: "Codex CLI", category: "CLI", vendor: "OpenAI", supportStatus: "unknown", metadataUrl: null, sourceUrl: null, notes: "Placeholder until validation traffic is captured." }
 ];
 
 async function main() {
