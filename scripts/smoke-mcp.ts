@@ -268,6 +268,37 @@ async function main() {
   const clientsBeforeToken = await getClientsWithLatestSignals();
   assert.equal(clientsBeforeToken.some((client) => client.id === pendingCardId), false);
 
+  const tokenOnlyName = `Token Only DCR ${probeVersion}`;
+  const tokenOnlyRegisterResponse = await registerPost(new Request(`${baseUrl}/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_name: tokenOnlyName,
+      redirect_uris: [`http://127.0.0.1:8765/token-only-${probeVersion}`],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      scope: "cimd:read",
+      application_type: "native"
+    })
+  }) as never);
+  const tokenOnlyRegistration = await tokenOnlyRegisterResponse.json() as Record<string, unknown>;
+  const tokenOnlyClientId = String(tokenOnlyRegistration.client_id);
+  const tokenOnlyCardId = tokenOnlyClientId.replace(/^dcr-/, "");
+  const tokenOnlyResponse = await tokenPost(new Request(`${baseUrl}/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code: "test-authorization-code",
+      client_id: tokenOnlyClientId,
+      redirect_uri: `http://localhost:8765/token-only-${probeVersion}`
+    })
+  }) as never);
+  assert.equal(tokenOnlyResponse.status, 200);
+  const clientsAfterTokenOnly = await getClientsWithLatestSignals();
+  assert.equal(clientsAfterTokenOnly.some((client) => client.id === tokenOnlyCardId), false);
+
   const completeName = `Complete DCR ${probeVersion}`;
   const completeRedirect = `http://127.0.0.1:8765/complete-${probeVersion}`;
   const completeRegisterResponse = await registerPost(new Request(`${baseUrl}/register`, {

@@ -212,7 +212,8 @@ function promotableClientAttempts(attempts: OAuthAttempt[]) {
   for (const sessionAttempts of bySession.values()) {
     const behavior = sessionBehavior(sessionAttempts);
     const hasSuccessfulTokenExchange = sessionAttempts.some((attempt) => attempt.path === "/token");
-    if (!hasSuccessfulTokenExchange || (behavior !== "dcr" && behavior !== "cimd")) continue;
+    const hasAuthorization = sessionAttempts.some((attempt) => attempt.path === "/authorize");
+    if (!hasAuthorization || !hasSuccessfulTokenExchange || (behavior !== "dcr" && behavior !== "cimd")) continue;
 
     for (const attempt of sessionAttempts) {
       if (observedBehavior(attempt) === behavior) promotable.add(attempt);
