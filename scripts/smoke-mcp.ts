@@ -9,6 +9,7 @@ import { db } from "../lib/db";
 import { oauthAttempts } from "../lib/db/schema";
 import { getClientsWithLatestSignals } from "../lib/db/queries";
 import { handleMcpRequest } from "../lib/mcp/protocol";
+import { authorizationServerMetadata } from "../lib/oauth/base-url";
 
 const baseUrl = "http://localhost:3000";
 const safeToolNamePattern = /^[A-Za-z0-9_-]{1,64}$/;
@@ -48,6 +49,8 @@ function toolNames(payload: JsonRpcResponse) {
 
 async function main() {
   const probeVersion = `local-${Date.now()}`;
+  const metadata = authorizationServerMetadata(baseUrl);
+  assert.equal(metadata.authorization_response_iss_parameter_supported, false);
 
   const legacyInitialize = await invoke(
     {

@@ -24,7 +24,7 @@ export function authorizationServerMetadata(baseUrl: string) {
     token_endpoint_auth_methods_supported: ["none"],
     scopes_supported: ["cimd:read"],
     protected_resources: [`${baseUrl}/mcp`],
-    authorization_response_iss_parameter_supported: true,
+    authorization_response_iss_parameter_supported: false,
     client_id_metadata_document_supported: true
   };
 }
