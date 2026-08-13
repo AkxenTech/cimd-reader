@@ -81,7 +81,6 @@ export async function GET(request: NextRequest) {
       const callbackUrl = new URL(redirectUri);
       callbackUrl.searchParams.set("code", "test-authorization-code");
       callbackUrl.searchParams.set("session_id", sessionId);
-      callbackUrl.searchParams.set("iss", getBaseUrl(request));
       if (state) callbackUrl.searchParams.set("state", state);
       return NextResponse.redirect(callbackUrl, 302);
     } catch {

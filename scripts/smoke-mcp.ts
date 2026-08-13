@@ -170,13 +170,16 @@ async function main() {
   const oauthSessionId = crypto.randomUUID();
   const clientId = `local-client-${probeVersion}`;
   const redirectUri = `http://localhost/callback-${probeVersion}`;
-  await authorizeGet(new Request(`${baseUrl}/authorize?${new URLSearchParams({
+  const authorizeResponse = await authorizeGet(new Request(`${baseUrl}/authorize?${new URLSearchParams({
     session_id: oauthSessionId,
     client_id: clientId,
     redirect_uri: redirectUri,
     response_type: "code",
     scope: "cimd:read"
   })}`) as never);
+  const authorizeLocation = authorizeResponse.headers.get("location");
+  assert.ok(authorizeLocation);
+  assert.equal(new URL(authorizeLocation).searchParams.has("iss"), false);
 
   const tokenResponse = await tokenPost(new Request(`${baseUrl}/token`, {
     method: "POST",
