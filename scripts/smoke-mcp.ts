@@ -7,6 +7,7 @@ import { POST as registerPost } from "../app/register/route";
 import { POST as tokenPost } from "../app/token/route";
 import { db } from "../lib/db";
 import { oauthAttempts } from "../lib/db/schema";
+import { getClientsWithLatestSignals } from "../lib/db/queries";
 import { handleMcpRequest } from "../lib/mcp/protocol";
 
 const baseUrl = "http://localhost:3000";
@@ -234,6 +235,78 @@ async function main() {
     .limit(1);
   assert.equal(devinAuthorizeAttempt.classification, "dcr");
   assert.equal(devinAuthorizeAttempt.clientName, "Devin CLI");
+
+  const pendingName = `Pending DCR ${probeVersion}`;
+  const pendingRedirect = `http://127.0.0.1:8765/pending-${probeVersion}`;
+  const pendingRegisterResponse = await registerPost(new Request(`${baseUrl}/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_name: pendingName,
+      redirect_uris: [pendingRedirect],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      scope: "cimd:read",
+      application_type: "native"
+    })
+  }) as never);
+  const pendingRegistration = await pendingRegisterResponse.json() as Record<string, unknown>;
+  const pendingClientId = String(pendingRegistration.client_id);
+  const pendingCardId = pendingClientId.replace(/^dcr-/, "");
+  const pendingAuthorizeSession = crypto.randomUUID();
+  await authorizeGet(new Request(`${baseUrl}/authorize?${new URLSearchParams({
+    session_id: pendingAuthorizeSession,
+    client_id: pendingClientId,
+    redirect_uri: pendingRedirect.replace("127.0.0.1", "localhost"),
+    response_type: "code",
+    scope: "cimd:read"
+  })}`) as never);
+  const clientsBeforeToken = await getClientsWithLatestSignals();
+  assert.equal(clientsBeforeToken.some((client) => client.id === pendingCardId), false);
+
+  const completeName = `Complete DCR ${probeVersion}`;
+  const completeRedirect = `http://127.0.0.1:8765/complete-${probeVersion}`;
+  const completeRegisterResponse = await registerPost(new Request(`${baseUrl}/register`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_name: completeName,
+      redirect_uris: [completeRedirect],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+      scope: "cimd:read",
+      application_type: "native"
+    })
+  }) as never);
+  const completeRegistration = await completeRegisterResponse.json() as Record<string, unknown>;
+  const completeClientId = String(completeRegistration.client_id);
+  const completeCardId = completeClientId.replace(/^dcr-/, "");
+  const completeLoopbackRedirect = completeRedirect.replace("127.0.0.1", "localhost");
+  const completeAuthorizeSession = crypto.randomUUID();
+  await authorizeGet(new Request(`${baseUrl}/authorize?${new URLSearchParams({
+    session_id: completeAuthorizeSession,
+    client_id: completeClientId,
+    redirect_uri: completeLoopbackRedirect,
+    response_type: "code",
+    scope: "cimd:read"
+  })}`) as never);
+  const completeTokenResponse = await tokenPost(new Request(`${baseUrl}/token`, {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code: "test-authorization-code",
+      client_id: completeClientId,
+      redirect_uri: completeLoopbackRedirect
+    })
+  }) as never);
+  assert.equal(completeTokenResponse.status, 200);
+  const clientsAfterToken = await getClientsWithLatestSignals();
+  const completeClient = clientsAfterToken.find((client) => client.id === completeCardId);
+  assert.equal(completeClient?.name, completeName);
+  assert.equal(completeClient?.observedBehavior, "dcr");
 
   console.log("MCP smoke test passed");
   console.log(JSON.stringify({ safeToolNames: names, capturedClientVersion: probeVersion, correlatedTokenSession: oauthSessionId }, null, 2));

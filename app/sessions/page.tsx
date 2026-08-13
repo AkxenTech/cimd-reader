@@ -4,6 +4,40 @@ import { getSessions } from "@/lib/db/queries";
 
 export const dynamic = "force-dynamic";
 
+const RECENT_SESSIONS_PER_GROUP = 8;
+type SessionList = Awaited<ReturnType<typeof getSessions>>;
+
+function SessionRows({ sessions }: { sessions: SessionList }) {
+  return (
+    <>
+      {sessions.map((session) => (
+        <tr key={session.id} className="border-t border-line hover:bg-slate-50">
+          <td className="px-4 py-3 font-mono text-xs">
+            <Link href={`/sessions/${session.id}`} className="text-slate-900 hover:underline">
+              {session.id}
+            </Link>
+          </td>
+          <td className="px-4 py-3">{session.label ?? "Unlabeled"}</td>
+          <td className="px-4 py-3">{session.latestAttempt ? `${session.latestAttempt.method} ${session.latestAttempt.path}` : "None"}</td>
+          <td className="px-4 py-3">{session.sessionBehavior}</td>
+          <td className="px-4 py-3">
+            {session.clientType !== "Unknown client" ? (
+              <>
+                {session.clientType}
+                {session.clientVersions.length ? <span className="text-slate-500"> {session.clientVersions.join(", ")}</span> : null}
+              </>
+            ) : "Unknown"}
+          </td>
+          <td className="max-w-[240px] truncate px-4 py-3 font-mono text-xs">{session.latestAttempt?.userAgent ?? "Unknown"}</td>
+          <td className="max-w-[220px] truncate px-4 py-3 font-mono text-xs">{session.latestAttempt?.clientId ?? "None"}</td>
+          <td className="px-4 py-3">{session.createdAt}</td>
+          <td className="px-4 py-3">{session.attemptCount}</td>
+        </tr>
+      ))}
+    </>
+  );
+}
+
 export default async function SessionsPage() {
   const sessions = await getSessions();
   const groups = [...sessions.reduce((map, session) => {
@@ -46,6 +80,8 @@ export default async function SessionsPage() {
               .sort((a, b) => b[1] - a[1])
               .map(([behavior, count]) => `${behavior}: ${count}`)
               .join(" · ");
+            const recentSessions = group.sessions.slice(0, RECENT_SESSIONS_PER_GROUP);
+            const olderSessions = group.sessions.slice(RECENT_SESSIONS_PER_GROUP);
 
             return (
               <section key={group.clientKey} className="rounded-lg border border-line bg-white shadow-sm">
@@ -79,33 +115,25 @@ export default async function SessionsPage() {
                       </tr>
                     </thead>
                     <tbody>
-                      {group.sessions.map((session) => (
-                        <tr key={session.id} className="border-t border-line hover:bg-slate-50">
-                          <td className="px-4 py-3 font-mono text-xs">
-                            <Link href={`/sessions/${session.id}`} className="text-slate-900 hover:underline">
-                              {session.id}
-                            </Link>
-                          </td>
-                          <td className="px-4 py-3">{session.label ?? "Unlabeled"}</td>
-                          <td className="px-4 py-3">{session.latestAttempt ? `${session.latestAttempt.method} ${session.latestAttempt.path}` : "None"}</td>
-                          <td className="px-4 py-3">{session.sessionBehavior}</td>
-                          <td className="px-4 py-3">
-                            {session.clientType !== "Unknown client" ? (
-                              <>
-                                {session.clientType}
-                                {session.clientVersions.length ? <span className="text-slate-500"> {session.clientVersions.join(", ")}</span> : null}
-                              </>
-                            ) : "Unknown"}
-                          </td>
-                          <td className="max-w-[240px] truncate px-4 py-3 font-mono text-xs">{session.latestAttempt?.userAgent ?? "Unknown"}</td>
-                          <td className="max-w-[220px] truncate px-4 py-3 font-mono text-xs">{session.latestAttempt?.clientId ?? "None"}</td>
-                          <td className="px-4 py-3">{session.createdAt}</td>
-                          <td className="px-4 py-3">{session.attemptCount}</td>
-                        </tr>
-                      ))}
+                      <SessionRows sessions={recentSessions} />
                     </tbody>
                   </table>
                 </div>
+
+                {olderSessions.length ? (
+                  <details className="border-t border-line bg-slate-50">
+                    <summary className="cursor-pointer px-4 py-3 text-sm font-medium text-slate-700 hover:text-ink">
+                      Show {olderSessions.length} older session{olderSessions.length === 1 ? "" : "s"}
+                    </summary>
+                    <div className="overflow-x-auto border-t border-line bg-white">
+                      <table className="w-full min-w-[1120px] border-collapse text-left text-sm">
+                        <tbody>
+                          <SessionRows sessions={olderSessions} />
+                        </tbody>
+                      </table>
+                    </div>
+                  </details>
+                ) : null}
               </section>
             );
           })}

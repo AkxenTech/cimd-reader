@@ -137,7 +137,7 @@ export async function getClientsWithLatestSignals() {
   const clients = await db.select().from(mcpClients).orderBy(mcpClients.name);
   const attempts = await db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt));
   const results = await db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt));
-  const observedClients = syntheticClientsFromAttempts(attempts, results, clients);
+  const observedClients = syntheticClientsFromAttempts(promotableClientAttempts(attempts), results, clients);
 
   return [...clients, ...observedClients].map((client) => ({
     ...client,
@@ -150,7 +150,7 @@ export async function getClientDetail(id: string) {
 
   const attempts = await db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt));
   const results = await db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt));
-  const resolvedClient = client ?? syntheticClientsFromAttempts(attempts, results, []).find((item) => item.id === id);
+  const resolvedClient = client ?? syntheticClientsFromAttempts(promotableClientAttempts(attempts), results, []).find((item) => item.id === id);
   if (!resolvedClient) return null;
   const signals = observedSignalsForClient(resolvedClient, attempts, results);
 
@@ -197,6 +197,29 @@ function syntheticClientsFromAttempts(
   }
 
   return [...clients.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
+function promotableClientAttempts(attempts: OAuthAttempt[]) {
+  const bySession = new Map<string, OAuthAttempt[]>();
+  for (const attempt of attempts) {
+    if (!attempt.sessionId) continue;
+    const sessionAttempts = bySession.get(attempt.sessionId) ?? [];
+    sessionAttempts.push(attempt);
+    bySession.set(attempt.sessionId, sessionAttempts);
+  }
+
+  const promotable = new Set<OAuthAttempt>();
+  for (const sessionAttempts of bySession.values()) {
+    const behavior = sessionBehavior(sessionAttempts);
+    const hasSuccessfulTokenExchange = sessionAttempts.some((attempt) => attempt.path === "/token");
+    if (!hasSuccessfulTokenExchange || (behavior !== "dcr" && behavior !== "cimd")) continue;
+
+    for (const attempt of sessionAttempts) {
+      if (observedBehavior(attempt) === behavior) promotable.add(attempt);
+    }
+  }
+
+  return attempts.filter((attempt) => promotable.has(attempt));
 }
 
 function titleFromClientKey(key: string) {
