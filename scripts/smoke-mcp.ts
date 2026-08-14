@@ -205,6 +205,22 @@ async function main() {
     .orderBy(oauthAttempts.createdAt);
   assert.deepEqual(correlatedAttempts.map((attempt) => attempt.path), ["/authorize", "/token"]);
 
+  const staticSessionId = crypto.randomUUID();
+  const staticClientId = `static-client-${probeVersion}`;
+  await authorizeGet(new Request(`${baseUrl}/authorize?${new URLSearchParams({
+    session_id: staticSessionId,
+    client_id: staticClientId,
+    redirect_uri: `http://localhost/static-callback-${probeVersion}`,
+    response_type: "code",
+    scope: "cimd:read"
+  })}`) as never);
+  const [staticAuthorizeAttempt] = await db
+    .select()
+    .from(oauthAttempts)
+    .where(and(eq(oauthAttempts.sessionId, staticSessionId), eq(oauthAttempts.clientId, staticClientId)))
+    .limit(1);
+  assert.equal(staticAuthorizeAttempt.classification, "static");
+
   const devinRegisterResponse = await registerPost(new Request(`${baseUrl}/register`, {
     method: "POST",
     headers: { "content-type": "application/json" },
