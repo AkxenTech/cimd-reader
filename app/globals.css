@@ -17,3 +17,10 @@ pre {
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+@layer utilities {
+  .wrap-anywhere {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+}

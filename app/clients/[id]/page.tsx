@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { getClientDetail } from "@/lib/db/queries";
+import { hostedClientPlatformFromSignal } from "@/lib/oauth/client-platform";
 
 export const dynamic = "force-dynamic";
 
@@ -26,9 +27,9 @@ function metadataObject(raw: string | null | undefined) {
 
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
-    <div>
+    <div className="min-w-0">
       <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">{label}</dt>
-      <dd className="mt-1 break-words text-sm text-slate-800">{value || <span className="text-slate-400">Unknown</span>}</dd>
+      <dd className="wrap-anywhere mt-1 text-sm text-slate-800">{value || <span className="text-slate-400">Unknown</span>}</dd>
     </div>
   );
 }
@@ -50,6 +51,10 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
   const errors = parseJsonArray(latestValidation?.validationErrors);
   const warnings = parseJsonArray(latestValidation?.validationWarnings);
   const metadataUrl = client.metadataUrl ?? latestValidation?.metadataUrl ?? (latestAttempt?.classification === "cimd" ? latestAttempt.clientId : null);
+  const platform = hostedClientPlatformFromSignal({
+    metadataUrl,
+    userAgent: latestAttempt?.userAgent
+  });
 
   return (
     <main className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
@@ -62,7 +67,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           <div>
             <p className="text-sm text-slate-500">{client.category ?? "Developer tool"}</p>
             <h1 className="mt-1 text-3xl font-semibold tracking-tight">{client.name}</h1>
-            <p className="mt-3 max-w-3xl text-slate-600">{client.notes ?? "No notes recorded."}</p>
+            <p className="wrap-anywhere mt-3 max-w-3xl text-slate-600">{client.notes ?? "No notes recorded."}</p>
           </div>
           <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 ring-1 ring-slate-200">
             observed: {observedBehavior}
@@ -73,6 +78,7 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           <Field label="Observed evidence" value={observedEvidence} />
           <Field label="Observed at" value={observedAt} />
           <Field label="Metadata URL" value={metadataUrl} />
+          {platform ? <Field label="Host platform" value={`${platform.name} · ${platform.identityScope}`} /> : null}
           <Field label="Vendor" value={client.vendor} />
           <Field label="Source URL" value={client.sourceUrl} />
           <Field label="Claimed status" value={client.supportStatus.replace("_", " ")} />

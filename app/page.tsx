@@ -2,6 +2,7 @@ import Link from "next/link";
 import { CheckCircle2, CircleHelp, CircleX, ExternalLink, RadioTower } from "lucide-react";
 
 import { getClientsWithLatestSignals } from "@/lib/db/queries";
+import { hostedClientPlatformFromSignal } from "@/lib/oauth/client-platform";
 import { GITHUB_HANDLE, GITHUB_URL } from "@/lib/site";
 
 export const dynamic = "force-dynamic";
@@ -40,8 +41,8 @@ function StatusIcon({ status }: { status: string }) {
 }
 
 function ListValue({ value }: { value: unknown }) {
-  if (Array.isArray(value)) return <span>{value.join(", ")}</span>;
-  if (typeof value === "string") return <span>{value}</span>;
+  if (Array.isArray(value)) return <span className="wrap-anywhere">{value.join(", ")}</span>;
+  if (typeof value === "string") return <span className="wrap-anywhere">{value}</span>;
   return <span className="text-slate-400">Not observed</span>;
 }
 
@@ -125,21 +126,28 @@ codex mcp login cimd_reader`}</pre>
           const displayName = typeof metadata.client_name === "string" ? metadata.client_name : client.name;
           const logo = typeof metadata.logo_uri === "string" ? metadata.logo_uri : null;
           const metadataUrl = client.metadataUrl ?? client.latestValidation?.metadataUrl ?? (client.latestAttempt?.classification === "cimd" ? client.latestAttempt.clientId : null);
+          const platform = hostedClientPlatformFromSignal({
+            metadataUrl,
+            userAgent: client.latestAttempt?.userAgent
+          });
 
           return (
             <Link
               key={client.id}
               href={`/clients/${client.id}`}
-              className="group flex min-h-[420px] flex-col rounded-lg border border-line bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-soft"
+              className="group flex min-h-[420px] min-w-0 flex-col overflow-hidden rounded-lg border border-line bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-soft"
             >
-              <div className="flex items-start justify-between gap-4">
+              <div className="flex min-w-0 items-start justify-between gap-4">
                 <div className="flex min-w-0 items-center gap-3">
                   <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-line bg-slate-50">
                     {logo ? <img src={logo} alt="" className="h-7 w-7 object-contain" /> : <RadioTower className="h-5 w-5 text-slate-500" />}
                   </div>
                   <div className="min-w-0">
                     <h2 className="truncate text-lg font-semibold text-ink">{client.name}</h2>
-                    <p className="text-sm text-slate-500">{client.category ?? "Tool"}</p>
+                    <p className="wrap-anywhere text-sm text-slate-500">
+                      {client.category ?? "Tool"}
+                      {platform ? <span> · {platform.name}</span> : null}
+                    </p>
                   </div>
                 </div>
                 <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${statusClasses(client.observedBehavior)}`}>
@@ -149,51 +157,59 @@ codex mcp login cimd_reader`}</pre>
               </div>
 
               <dl className="mt-5 grid gap-3 text-sm">
-                <div>
+                <div className="min-w-0">
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Observed result</dt>
-                  <dd className="mt-1 text-slate-800">{client.observedEvidence}</dd>
+                  <dd className="wrap-anywhere mt-1 text-slate-800">{client.observedEvidence}</dd>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Latest user agent</dt>
-                  <dd className="mt-1 break-words font-mono text-xs text-slate-700">{client.latestAttempt?.userAgent ?? "Not observed"}</dd>
+                  <dd className="wrap-anywhere mt-1 font-mono text-xs text-slate-700">{client.latestAttempt?.userAgent ?? "Not observed"}</dd>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Latest event</dt>
-                    <dd className="mt-1 text-slate-800">
+                    <dd className="wrap-anywhere mt-1 text-slate-800">
                       {client.latestAttempt ? `${client.latestAttempt.method} ${client.latestAttempt.path}` : "Not observed"}
                     </dd>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Client version</dt>
-                    <dd className="mt-1 text-slate-800">{client.latestAttempt?.clientVersion ?? "Unknown"}</dd>
+                    <dd className="wrap-anywhere mt-1 text-slate-800">{client.latestAttempt?.clientVersion ?? "Unknown"}</dd>
                   </div>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Claimed status</dt>
-                  <dd className="mt-1 text-slate-800">{client.supportStatus.replace("_", " ")}</dd>
+                  <dd className="wrap-anywhere mt-1 text-slate-800">{client.supportStatus.replace("_", " ")}</dd>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Metadata name</dt>
-                    <dd className="mt-1 text-slate-800">{displayName}</dd>
+                    <dd className="wrap-anywhere mt-1 text-slate-800">{displayName}</dd>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Observed behavior</dt>
-                    <dd className="mt-1 text-slate-800">{client.observedBehavior}</dd>
+                    <dd className="wrap-anywhere mt-1 text-slate-800">{client.observedBehavior}</dd>
                   </div>
                 </div>
-                <div>
+                {platform ? (
+                  <div className="min-w-0">
+                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Host platform</dt>
+                    <dd className="wrap-anywhere mt-1 text-slate-800">
+                      {platform.name} · {platform.identityScope}
+                    </dd>
+                  </div>
+                ) : null}
+                <div className="min-w-0">
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Metadata URL</dt>
-                  <dd className="mt-1 break-all font-mono text-xs text-slate-700">{metadataUrl ?? "Unknown"}</dd>
+                  <dd className="wrap-anywhere mt-1 font-mono text-xs text-slate-700">{metadataUrl ?? "Unknown"}</dd>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Client URI</dt>
-                  <dd className="mt-1 break-all text-slate-800">
+                  <dd className="wrap-anywhere mt-1 text-slate-800">
                     {typeof metadata.client_uri === "string" ? (
-                      <span className="inline-flex items-center gap-1">
-                        {metadata.client_uri}
-                        <ExternalLink className="h-3 w-3" />
+                      <span className="inline-flex max-w-full items-center gap-1">
+                        <span className="wrap-anywhere min-w-0">{metadata.client_uri}</span>
+                        <ExternalLink className="h-3 w-3 shrink-0" />
                       </span>
                     ) : (
                       "Not observed"
@@ -201,32 +217,32 @@ codex mcp login cimd_reader`}</pre>
                   </dd>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Grant types</dt>
                     <dd className="mt-1 text-slate-800"><ListValue value={metadata.grant_types} /></dd>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Response types</dt>
                     <dd className="mt-1 text-slate-800"><ListValue value={metadata.response_types} /></dd>
                   </div>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
-                  <div>
+                  <div className="min-w-0">
                     <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Token auth</dt>
                     <dd className="mt-1 text-slate-800"><ListValue value={metadata.token_endpoint_auth_method} /></dd>
                   </div>
-                  <div>
+                  <div className="min-w-0">
                     <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">App type</dt>
                     <dd className="mt-1 text-slate-800"><ListValue value={metadata.application_type} /></dd>
                   </div>
                 </div>
-                <div>
+                <div className="min-w-0">
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Redirect URIs</dt>
-                  <dd className="mt-1 line-clamp-3 text-slate-800"><ListValue value={metadata.redirect_uris} /></dd>
+                  <dd className="wrap-anywhere mt-1 line-clamp-3 text-slate-800"><ListValue value={metadata.redirect_uris} /></dd>
                 </div>
               </dl>
 
-              <div className="mt-auto border-t border-line pt-4 text-sm text-slate-600">
+              <div className="wrap-anywhere mt-auto border-t border-line pt-4 text-sm text-slate-600">
                 Last observed:{" "}
                 {client.observedAt ? (
                   <span className="text-slate-800">{client.observedAt}</span>

@@ -9,6 +9,7 @@ import {
   validationSessions
 } from "@/lib/db/schema";
 import type { McpClient, OAuthAttempt } from "@/lib/db/schema";
+import { hostedClientKeyFromMetadataUrl, hostedClientPlatformFromSignal } from "@/lib/oauth/client-platform";
 
 const SUPPRESSED_CLIENT_KEYS = new Set([
   "github-copilot",
@@ -40,11 +41,23 @@ function clientAliases(client: McpClient) {
     aliases.add("codex");
     aliases.add("codex cli");
     aliases.add("openai codex");
+    aliases.add("openai codex cli");
   }
 
   if (client.id === "claude-code") {
     aliases.add("claude");
     aliases.add("claude code");
+  }
+
+  if (client.id === "visual-studio-code") {
+    aliases.add("vs code");
+    aliases.add("vscode");
+    aliases.add("vscode dev");
+  }
+
+  if (client.id === "mcpjam") {
+    aliases.add("mcpjam inspector");
+    aliases.add("mcp inspector");
   }
 
   return [...aliases].map(normalize).filter(Boolean);
@@ -104,7 +117,7 @@ function dcrAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient) {
   const name = normalize(registeredClientName(attempt));
   if (!name) return false;
 
-  return clientAliases(client).some((alias) => name === alias || name.includes(alias) || alias.includes(name));
+  return clientAliases(client).some((alias) => name === alias);
 }
 
 function cimdAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient, results: (typeof cimdValidationResults.$inferSelect)[]) {
@@ -112,7 +125,10 @@ function cimdAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient, resu
   const normalizedClientId = normalize(attempt.clientId);
   const metadataName = normalize(validationMetadataName(attempt, results));
 
-  return clientAliases(client).some((alias) => normalizedClientId.includes(alias) || metadataName === alias || metadataName.includes(alias));
+  return clientAliases(client).some((alias) => (
+    normalizedClientId.includes(alias)
+    || Boolean(metadataName && metadataName === alias)
+  ));
 }
 
 function directAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient, results: (typeof cimdValidationResults.$inferSelect)[]) {
@@ -134,16 +150,47 @@ function observedBehavior(attempt: OAuthAttempt | null) {
   return attempt.classification ?? "unknown";
 }
 
-function observedEvidence(attempt: OAuthAttempt | null, fallbackClientName?: string | null) {
+function parseValidationErrors(result: (typeof cimdValidationResults.$inferSelect) | null) {
+  if (!result?.validationErrors) return [];
+
+  try {
+    const parsed = JSON.parse(result.validationErrors);
+    return Array.isArray(parsed) ? parsed.map(String) : [];
+  } catch {
+    return [];
+  }
+}
+
+function observedEvidence(
+  attempt: OAuthAttempt | null,
+  fallbackClientName?: string | null,
+  validation?: (typeof cimdValidationResults.$inferSelect) | null
+) {
   if (!attempt) return "No OAuth traffic observed yet.";
   const version = attempt.clientVersion ? ` (${attempt.clientVersion})` : "";
   const clientName = attempt.clientName ?? fallbackClientName;
   const client = clientName ? `${clientName}${version}` : null;
+  const platform = hostedClientPlatformFromSignal({
+    metadataUrl: attempt.classification === "cimd" ? attempt.clientId : null,
+    userAgent: attempt.userAgent
+  });
   if (attempt.path === "/register") {
     const name = registeredClientName(attempt);
     return `${name ?? client ?? "Client"} dynamically registered and received client_id ${attempt.clientId ?? "unknown"}.`;
   }
-  if (attempt.classification === "cimd") return `${client ? `${client} authorization used` : "Authorization used"} client_id metadata URL ${attempt.clientId}.`;
+  if (attempt.classification === "cimd") {
+    if (validation && !validation.metadataValid) {
+      const errors = parseValidationErrors(validation);
+      const reason = errors.length ? ` ${errors.join("; ")}.` : "";
+      return `${client ?? "Client"} used client_id metadata URL ${attempt.clientId}, but metadata validation failed.${reason}`;
+    }
+
+    if (platform) {
+      return `${client ?? "Client"} is a ${platform.label}; authorization used per-connector client_id metadata URL ${attempt.clientId}.`;
+    }
+
+    return `${client ? `${client} authorization used` : "Authorization used"} client_id metadata URL ${attempt.clientId}.`;
+  }
   if (attempt.classification === "static") return `${client ? `${client} authorization used` : "Authorization used"} static client_id ${attempt.clientId ?? "unknown"}.`;
   if (observedBehavior(attempt) === "dcr") return `${client ? `${client} authorization used` : "Authorization used"} dynamically registered client_id ${attempt.clientId ?? "unknown"}.`;
   if (attempt.classification === "mcp") return `${client ?? "MCP client"} initialized the authenticated MCP session.`;
@@ -155,7 +202,7 @@ export async function getClientsWithLatestSignals() {
     .filter((client) => !isSuppressedClientKey(client.id));
   const attempts = await db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt));
   const results = await db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt));
-  const observedClients = syntheticClientsFromAttempts(promotableClientAttempts(attempts), results, clients);
+  const observedClients = syntheticClientsFromAttempts(promotableClientAttempts(attempts, results), results, clients);
 
   return [...clients, ...observedClients].map((client) => ({
     ...client,
@@ -169,7 +216,7 @@ export async function getClientDetail(id: string) {
 
   const attempts = await db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt));
   const results = await db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt));
-  const resolvedClient = client ?? syntheticClientsFromAttempts(promotableClientAttempts(attempts), results, []).find((item) => item.id === id);
+  const resolvedClient = client ?? syntheticClientsFromAttempts(promotableClientAttempts(attempts, results), results, []).find((item) => item.id === id);
   if (!resolvedClient) return null;
   const signals = observedSignalsForClient(resolvedClient, attempts, results);
 
@@ -186,6 +233,8 @@ function syntheticClientsFromAttempts(
 ) {
   const existingKeys = new Set(existingClients.flatMap((client) => [
     client.id,
+    client.metadataUrl,
+    hostedClientKeyFromMetadataUrl(client.metadataUrl),
     canonicalClientKey(client.id),
     canonicalClientKey(client.name),
     canonicalClientKey(client.vendor)
@@ -195,7 +244,12 @@ function syntheticClientsFromAttempts(
   for (const attempt of attempts) {
     const candidate = clientTypeCandidate(attempt, results);
     const dcrKey = attempt.clientId?.startsWith("dcr-") ? canonicalClientKey(attempt.clientId.slice(4)) : null;
-    const key = dcrKey ?? canonicalClientKey(candidate);
+    const cimdMetadataUrl = attempt.classification === "cimd" ? attempt.clientId : null;
+    const hostedPlatform = hostedClientPlatformFromSignal({
+      metadataUrl: cimdMetadataUrl,
+      userAgent: attempt.userAgent
+    });
+    const key = hostedClientKeyFromMetadataUrl(cimdMetadataUrl) ?? dcrKey ?? canonicalClientKey(candidate);
     if (!key || key === "unknown-client" || isSuppressedClientKey(key) || existingKeys.has(key) || clients.has(key)) continue;
 
     const name = registeredClientName(attempt) ?? attempt.clientName ?? (dcrKey ? titleFromClientKey(key) : displayClientType(candidate));
@@ -204,12 +258,12 @@ function syntheticClientsFromAttempts(
     clients.set(key, {
       id: key,
       name,
-      category: normalize(name).includes("cli") ? "CLI" : "Tool",
-      vendor: null,
+      category: hostedPlatform ? "Connector" : normalize(name).includes("cli") ? "CLI" : "Tool",
+      vendor: hostedPlatform?.name ?? null,
       supportStatus: "unknown",
-      metadataUrl: null,
-      sourceUrl: null,
-      notes: "Observed from OAuth traffic.",
+      metadataUrl: cimdMetadataUrl,
+      sourceUrl: cimdMetadataUrl,
+      notes: hostedPlatform?.notes ?? "Observed from OAuth traffic.",
       createdAt: attempt.createdAt,
       updatedAt: attempt.createdAt
     });
@@ -218,7 +272,17 @@ function syntheticClientsFromAttempts(
   return [...clients.values()].sort((left, right) => left.name.localeCompare(right.name));
 }
 
-function promotableClientAttempts(attempts: OAuthAttempt[]) {
+function cimdSessionHasValidMetadata(
+  attempts: OAuthAttempt[],
+  results: (typeof cimdValidationResults.$inferSelect)[]
+) {
+  return attempts.some((attempt) => (
+    attempt.classification === "cimd"
+    && Boolean(resultForAttempt(attempt, results)?.metadataValid)
+  ));
+}
+
+function promotableClientAttempts(attempts: OAuthAttempt[], results: (typeof cimdValidationResults.$inferSelect)[]) {
   const bySession = new Map<string, OAuthAttempt[]>();
   for (const attempt of attempts) {
     if (!attempt.sessionId) continue;
@@ -233,6 +297,7 @@ function promotableClientAttempts(attempts: OAuthAttempt[]) {
     const hasSuccessfulTokenExchange = sessionAttempts.some((attempt) => attempt.path === "/token");
     const hasAuthorization = sessionAttempts.some((attempt) => attempt.path === "/authorize");
     if (!hasAuthorization || !hasSuccessfulTokenExchange || (behavior !== "dcr" && behavior !== "cimd")) continue;
+    if (behavior === "cimd" && !cimdSessionHasValidMetadata(sessionAttempts, results)) continue;
 
     for (const attempt of sessionAttempts) {
       if (observedBehavior(attempt) === behavior) promotable.add(attempt);
@@ -264,7 +329,11 @@ function observedSignalsForClient(client: McpClient, attempts: OAuthAttempt[], r
       ? results.find((result) => matchingAttempts.some((attempt) => attempt.id === result.attemptId)) ?? null
       : null
   );
-  const behavior = latestCimdAttempt ? "cimd" : observedBehavior(statusAttempt);
+  const behavior = latestCimdAttempt && latestCimdValidation && !latestCimdValidation.metadataValid
+    ? "failed"
+    : latestCimdAttempt
+      ? "cimd"
+      : observedBehavior(statusAttempt);
 
   return {
     latestAttempt,
@@ -273,7 +342,7 @@ function observedSignalsForClient(client: McpClient, attempts: OAuthAttempt[], r
     latestValidation,
     latestCimdValidation,
     observedBehavior: behavior,
-    observedEvidence: observedEvidence(statusAttempt, client.name),
+    observedEvidence: observedEvidence(statusAttempt, client.name, latestCimdValidation),
     observedAt: latestAttempt?.createdAt ?? latestValidation?.createdAt ?? null
   };
 }
