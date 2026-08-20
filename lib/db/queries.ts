@@ -143,6 +143,11 @@ function resultForAttempt(attempt: OAuthAttempt | null, results: (typeof cimdVal
   return results.find((result) => result.attemptId === attempt.id) ?? null;
 }
 
+function hasValidCimdMetadata(attempt: OAuthAttempt, results: (typeof cimdValidationResults.$inferSelect)[]) {
+  if (attempt.classification !== "cimd") return true;
+  return Boolean(resultForAttempt(attempt, results)?.metadataValid);
+}
+
 function observedBehavior(attempt: OAuthAttempt | null) {
   if (!attempt) return "unknown";
   if (attempt.path === "/register") return "dcr";
@@ -316,9 +321,19 @@ function titleFromClientKey(key: string) {
 }
 
 function observedSignalsForClient(client: McpClient, attempts: OAuthAttempt[], results: (typeof cimdValidationResults.$inferSelect)[]) {
-  const directlyMatchingAttempts = attempts.filter((attempt) => directAttemptMatchesClient(attempt, client, results) || dcrAttemptMatchesClient(attempt, client));
+  const directlyMatchingAttempts = attempts.filter((attempt) => (
+    (directAttemptMatchesClient(attempt, client, results) || dcrAttemptMatchesClient(attempt, client))
+    && hasValidCimdMetadata(attempt, results)
+  ));
   const matchingSessionIds = new Set(directlyMatchingAttempts.map((attempt) => attempt.sessionId).filter(Boolean));
-  const matchingAttempts = attempts.filter((attempt) => directlyMatchingAttempts.includes(attempt) || (attempt.sessionId && matchingSessionIds.has(attempt.sessionId)));
+  const invalidCimdSessionIds = new Set(attempts
+    .filter((attempt) => attempt.classification === "cimd" && !hasValidCimdMetadata(attempt, results))
+    .map((attempt) => attempt.sessionId)
+    .filter(Boolean));
+  const matchingAttempts = attempts.filter((attempt) => (
+    (directlyMatchingAttempts.includes(attempt) || (attempt.sessionId && matchingSessionIds.has(attempt.sessionId)))
+    && (!attempt.sessionId || !invalidCimdSessionIds.has(attempt.sessionId))
+  ));
   const behaviorAttempts = matchingAttempts.filter((attempt) => attempt.path === "/register" || attempt.classification);
   const latestAttempt = matchingAttempts[0] ?? null;
   const latestCimdAttempt = matchingAttempts.find((attempt) => attempt.classification === "cimd") ?? null;
