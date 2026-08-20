@@ -109,18 +109,6 @@ VS Code `mcp.json`:
 
 The authorization server advertises CIMD support. `/authorize` logs the request, classifies the client behavior, validates HTTPS URL `client_id` values as CIMD metadata documents, stores the result, then redirects to `redirect_uri` with a fake authorization code. `/token` returns a fake bearer token. `/register` logs DCR attempts and returns a fake client registration.
 
-### Vercel Connect-hosted MCP connectors
-
-Vercel Connect represents hosted MCP connectors as separate OAuth clients. A connector uses a CIMD `client_id` URL like:
-
-```text
-https://connect.vercel.com/connectors/<connector-id>
-```
-
-The metadata document names the connector, uses Vercel's callback URL, and token exchanges are made by the `Vercel-Connex` user agent. Because the CIMD URL is unique per connector, valid Vercel-hosted connector observations are represented as per-connector client cards and label Vercel as the host platform. Failed or incomplete connector observations stay in the sessions timeline only. The dashboard should not collapse connector rows into a single global "Vercel" client, since the OAuth identity, redirect URI set, validation result, and connector name are connector-specific.
-
-If a connector is renamed or multiple connector names share a prefix, matching should prefer the `connect.vercel.com/connectors/<connector-id>` metadata URL over fuzzy display-name matching.
-
 ## Dashboard
 
 - `/` shows MCP client cards with claimed support, observed behavior, and latest CIMD validation.
