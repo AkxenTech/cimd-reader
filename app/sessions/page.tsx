@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { ArrowRight } from "lucide-react";
 
 import { getSessions } from "@/lib/db/queries";
 
@@ -10,30 +11,58 @@ type SessionList = Awaited<ReturnType<typeof getSessions>>;
 function SessionRows({ sessions }: { sessions: SessionList }) {
   return (
     <>
-      {sessions.map((session) => (
-        <tr key={session.id} className="border-t border-line hover:bg-slate-50">
-          <td className="px-4 py-3 font-mono text-xs">
-            <Link href={`/sessions/${session.id}`} className="text-slate-900 hover:underline">
-              {session.id}
-            </Link>
-          </td>
-          <td className="px-4 py-3">{session.label ?? "Unlabeled"}</td>
-          <td className="px-4 py-3">{session.latestAttempt ? `${session.latestAttempt.method} ${session.latestAttempt.path}` : "None"}</td>
-          <td className="px-4 py-3">{session.sessionBehavior}</td>
-          <td className="px-4 py-3">
-            {session.clientType !== "Unknown client" ? (
-              <>
-                {session.clientType}
-                {session.clientVersions.length ? <span className="text-slate-500"> {session.clientVersions.join(", ")}</span> : null}
-              </>
-            ) : "Unknown"}
-          </td>
-          <td className="max-w-[240px] truncate px-4 py-3 font-mono text-xs">{session.latestAttempt?.userAgent ?? "Unknown"}</td>
-          <td className="max-w-[220px] truncate px-4 py-3 font-mono text-xs">{session.latestAttempt?.clientId ?? "None"}</td>
-          <td className="px-4 py-3">{session.createdAt}</td>
-          <td className="px-4 py-3">{session.attemptCount}</td>
-        </tr>
-      ))}
+      {sessions.map((session) => {
+        const sessionHref = `/sessions/${session.id}`;
+        const attemptsHref = `${sessionHref}#attempts`;
+
+        return (
+          <tr key={session.id} className="group border-t border-line hover:bg-slate-50">
+            <td className="px-4 py-3 font-mono text-xs">
+              <Link
+                href={sessionHref}
+                className="inline-flex max-w-[180px] items-center gap-1 font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                aria-label={`View session ${session.id}`}
+              >
+                <span className="truncate">{session.id}</span>
+                <ArrowRight className="h-3.5 w-3.5 shrink-0 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
+              </Link>
+            </td>
+            <td className="px-4 py-3">{session.label ?? "Unlabeled"}</td>
+            <td className="px-4 py-3">{session.latestAttempt ? `${session.latestAttempt.method} ${session.latestAttempt.path}` : "None"}</td>
+            <td className="px-4 py-3">{session.sessionBehavior}</td>
+            <td className="px-4 py-3">
+              {session.clientType !== "Unknown client" ? (
+                <>
+                  {session.clientType}
+                  {session.clientVersions.length ? <span className="text-slate-500"> {session.clientVersions.join(", ")}</span> : null}
+                </>
+              ) : "Unknown"}
+            </td>
+            <td className="max-w-[240px] truncate px-4 py-3 font-mono text-xs">{session.latestAttempt?.userAgent ?? "Unknown"}</td>
+            <td className="max-w-[220px] truncate px-4 py-3 font-mono text-xs">{session.latestAttempt?.clientId ?? "None"}</td>
+            <td className="px-4 py-3">{session.createdAt}</td>
+            <td className="px-4 py-3">
+              <Link
+                href={attemptsHref}
+                className="whitespace-nowrap font-medium text-blue-700 underline underline-offset-2 hover:text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                aria-label={`View ${session.attemptCount} attempt${session.attemptCount === 1 ? "" : "s"} for session ${session.id}`}
+              >
+                {session.attemptCount} attempt{session.attemptCount === 1 ? "" : "s"}
+              </Link>
+            </td>
+            <td className="px-4 py-3 text-right">
+              <Link
+                href={sessionHref}
+                className="inline-flex items-center gap-1 rounded-md border border-line bg-white px-3 py-1.5 text-sm font-medium text-slate-700 shadow-sm hover:border-blue-200 hover:bg-blue-50 hover:text-blue-800 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2"
+                aria-label={`Open session ${session.id}`}
+              >
+                Open
+                <ArrowRight className="h-4 w-4" aria-hidden="true" />
+              </Link>
+            </td>
+          </tr>
+        );
+      })}
     </>
   );
 }
@@ -112,6 +141,7 @@ export default async function SessionsPage() {
                         <th className="px-4 py-3">Client ID</th>
                         <th className="px-4 py-3">Created</th>
                         <th className="px-4 py-3">Attempts</th>
+                        <th className="px-4 py-3 text-right">Action</th>
                       </tr>
                     </thead>
                     <tbody>
