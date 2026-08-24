@@ -155,6 +155,11 @@ function asStringArray(value: unknown) {
   return Array.isArray(value) && value.every((item) => typeof item === "string") ? value : null;
 }
 
+function optionalStringArray(value: unknown, defaultValue: string[]) {
+  if (value === undefined) return defaultValue;
+  return asStringArray(value);
+}
+
 function isLoopbackHostname(hostname: string) {
   return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1";
 }
@@ -216,11 +221,17 @@ export async function validateCimdDocument(clientId: string, requestedRedirectUr
       errors.push("requested redirect_uri is not listed in metadata.redirect_uris");
     }
 
-    const responseTypes = asStringArray(parsed.response_types);
-    if (!responseTypes?.includes("code")) errors.push("metadata.response_types must include code");
+    const responseTypes = optionalStringArray(parsed.response_types, ["code"]);
+    if (!responseTypes) {
+      errors.push("metadata.response_types must be an array of strings");
+    } else if (!responseTypes.includes("code")) {
+      errors.push("metadata.response_types must include code");
+    }
 
-    const grantTypes = asStringArray(parsed.grant_types);
-    if (!grantTypes?.includes("authorization_code")) {
+    const grantTypes = optionalStringArray(parsed.grant_types, ["authorization_code"]);
+    if (!grantTypes) {
+      errors.push("metadata.grant_types must be an array of strings");
+    } else if (!grantTypes.includes("authorization_code")) {
       errors.push("metadata.grant_types must include authorization_code");
     }
 
