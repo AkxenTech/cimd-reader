@@ -13,6 +13,28 @@ export const mcpClients = sqliteTable("mcp_clients", {
   updatedAt: text("updated_at").notNull()
 });
 
+export const mcpProtocolObservations = sqliteTable("mcp_protocol_observations", {
+  id: text("id").primaryKey(),
+  clientName: text("client_name"),
+  clientVersion: text("client_version"),
+  identitySource: text("identity_source").notNull(),
+  phase: text("phase").notNull(),
+  requestedVersion: text("requested_version"),
+  headerVersion: text("header_version"),
+  paramsVersion: text("params_version"),
+  metaVersion: text("meta_version"),
+  selectedVersion: text("selected_version"),
+  outcome: text("outcome").notNull(),
+  errorCode: integer("error_code"),
+  errorMessage: text("error_message"),
+  serverVersionsJson: text("server_versions_json").notNull(),
+  firstSeenAt: text("first_seen_at").notNull(),
+  lastSeenAt: text("last_seen_at").notNull(),
+  observationCount: integer("observation_count").notNull().default(1)
+});
+
+export type McpProtocolObservation = typeof mcpProtocolObservations.$inferSelect;
+
 export const validationSessions = sqliteTable("validation_sessions", {
   id: text("id").primaryKey(),
   label: text("label"),

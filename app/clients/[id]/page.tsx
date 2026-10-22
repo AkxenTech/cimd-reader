@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 
 import { getClientDetail } from "@/lib/db/queries";
 import { hostedClientPlatformFromSignal } from "@/lib/oauth/client-platform";
+import { ProtocolHistory, ProtocolHistoryNote } from "@/app/components/protocol-history";
 
 export const dynamic = "force-dynamic";
 
@@ -83,6 +84,12 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           <Field label="Source URL" value={client.sourceUrl} />
           <Field label="Claimed status" value={client.supportStatus.replace("_", " ")} />
         </dl>
+      </section>
+
+      <section className="mt-5 rounded-lg border border-line bg-white p-6 shadow-sm">
+        <h2 className="text-lg font-semibold">MCP protocol version history</h2>
+        <ProtocolHistoryNote />
+        <ProtocolHistory observations={detail.protocolHistory} />
       </section>
 
       <section className="mt-5 grid gap-5 lg:grid-cols-[1fr_1fr]">

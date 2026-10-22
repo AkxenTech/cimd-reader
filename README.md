@@ -117,20 +117,45 @@ The authorization server advertises CIMD support. `/authorize` logs the request,
 - `/sessions/[id]` shows an OAuth request timeline.
 - `/api/clients` returns client data as JSON.
 - `/api/sessions` returns session data as JSON.
+- `/protocols` lists unique MCP protocol observations across clients, newest protocol revision first, then most recently observed.
+- `/api/protocols` returns the same history as JSON. Client cards and detail pages include matching protocol observations.
+
+## MCP Protocol History
+
+Run `npm run db:migrate` before serving the updated app locally. Vercel runs migrations before each build using the deployment's database credentials. Missing Vercel database configuration fails the build. Migration `0004` adds a persistent protocol observation table without modifying OAuth results.
+
+Authenticated `/mcp` requests record legacy `initialize` exchanges, modern `server/discover` probes, and explicit per-request protocol versions. Each distinct reported client name, application release, identity source, negotiation phase, version evidence, outcome, and server-supported version set has one row. Repeated observations atomically increment a count and update first/last seen timestamps. Different releases and version outcomes remain separate, including failures.
+
+The history distinguishes a successful initialization from a server counter-offer, discovery, an accepted request, and a rejected request. Legacy clients proposing an unsupported revision receive a supported legacy counter-offer. Modern requests with unsupported versions receive an error listing supported revisions. Counter-offers and discovery alone are not counted as evidence of client usage on dashboard cards.
+
+Identity comes from initialize `clientInfo`, modern `_meta` client information, or the user agent as a fallback. Unidentified traffic remains visible in the protocol history. Identity is self-reported: the shared diagnostic bearer token cannot associate MCP traffic with a particular OAuth session. This history records observed versions, not every version a client may support. Existing initialize logs did not retain server responses and are not backfilled as negotiated versions; new structured history starts after migration and deployment.
+
+See the [modern versioning rules](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning) and [legacy initialization rules](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle).
+
+`npm run smoke:protocols` uses a temporary local database to verify negotiation, persistence, deduplication, ordering, and the history API.
 
 ## SSRF Protections
 
 The CIMD metadata fetcher:
 
-- Requires HTTPS.
+- Requires HTTPS and a path, and rejects credentials, fragments, and dot path segments.
 - Rejects localhost hostnames.
 - Rejects private, loopback, link-local, carrier-grade NAT, multicast, and metadata IP ranges.
-- Resolves hostnames and blocks unsafe DNS results.
-- Limits redirects.
-- Uses a request timeout.
+- Resolves hostnames and blocks unsafe DNS results, including IPv4-mapped IPv6 and reserved ranges.
+- Pins the connection to vetted DNS addresses while retaining hostname-based TLS verification.
+- Rejects HTTP redirects without following them.
+- Uses a five-second deadline across DNS, connection, and body reading.
 - Caps response body size.
 - Sends no credentials or cookies.
 - Parses and validates JSON only after the fetch checks pass.
+
+## CIMD Regression
+
+Run `npm run test:cimd` for the isolated CIMD regression suite. It creates and removes a temporary database and intercepts DNS/HTTPS responses with deterministic fixtures; it never writes to the configured Turso database or contacts fixture hosts.
+
+Coverage includes required fields and malformed JSON, exact client ID matching, OAuth defaults, native loopback and custom-scheme redirects, secret/private-key rejection, IPv4/IPv6 SSRF cases, DNS rebinding prevention, HTTP failures and redirects, byte limits, DNS/header/body timeouts, persisted validation results, token correlation, client cards/details/API, hosted connectors, and coexistence with protocol history. `npm run verify:local` also runs this suite.
+
+The validator targets this diagnostic server's public/native authorization-code profile (`token_endpoint_auth_method: none`), not every possible OAuth grant or confidential-client authentication method. Metadata fetching follows the [CIMD discovery requirements](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document-02#section-5). `/authorize` and `/token` remain diagnostic stubs: invalid CIMD evidence is logged and excluded from successful client promotion, while the fake authorization flow continues.
 
 ## Seed Data
 

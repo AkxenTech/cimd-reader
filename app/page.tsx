@@ -162,6 +162,13 @@ codex mcp login cimd_reader`}</pre>
                   <dd className="wrap-anywhere mt-1 text-slate-800">{client.observedEvidence}</dd>
                 </div>
                 <div className="min-w-0">
+                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Highest observed MCP version</dt>
+                  <dd className="wrap-anywhere mt-1 font-mono text-sm text-slate-800">{client.highestObservedProtocol?.selectedVersion ?? "Not observed"}</dd>
+                  {client.highestObservedProtocol ? (
+                    <dd className="mt-1 text-xs text-slate-500">Client {client.highestObservedProtocol.clientVersion ?? "release unknown"} · {client.protocolHistory.length} distinct version observations</dd>
+                  ) : null}
+                </div>
+                <div className="min-w-0">
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Latest user agent</dt>
                   <dd className="wrap-anywhere mt-1 font-mono text-xs text-slate-700">{client.latestAttempt?.userAgent ?? "Not observed"}</dd>
                 </div>

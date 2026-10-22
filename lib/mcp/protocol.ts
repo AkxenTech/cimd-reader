@@ -3,6 +3,7 @@ import { db } from "@/lib/db";
 import { oauthAttempts } from "@/lib/db/schema";
 import { GITHUB_HANDLE, GITHUB_URL } from "@/lib/site";
 import { clientSignalFromUserAgent } from "@/lib/oauth/client-signal";
+import { recordProtocolObservation } from "@/lib/mcp/observations";
 
 export const MCP_PROTOCOL_VERSION = "2026-07-28";
 export const MCP_COMPAT_PROTOCOL_VERSION = "2025-11-25";
@@ -201,6 +202,10 @@ function hasLegacySession(httpRequest: Request) {
 }
 
 function negotiatedProtocolVersion(httpRequest: Request, rpcRequest: JsonRpcRequest): SupportedProtocolVersion {
+  if (rpcRequest.method === "initialize") {
+    const requested = getParamsProtocolVersion(rpcRequest);
+    return requested && isSupportedProtocolVersion(requested) ? requested as SupportedProtocolVersion : MCP_COMPAT_PROTOCOL_VERSION;
+  }
   const requested = getRequestedProtocolVersions(httpRequest, rpcRequest);
   if (requested.length === 0 && hasLegacySession(httpRequest)) return MCP_COMPAT_PROTOCOL_VERSION;
   return (requested.find(isSupportedProtocolVersion) as SupportedProtocolVersion | undefined) ?? MCP_PROTOCOL_VERSION;
@@ -252,6 +257,9 @@ function validateRequiredHeaders(httpRequest: Request, rpcRequest: JsonRpcReques
 }
 
 function validateProtocolVersion(httpRequest: Request, request: JsonRpcRequest) {
+  // Legacy initialization allows a counter-offer. The client decides whether to
+  // continue using the returned version; modern requests instead reject mismatches.
+  if (request.method === "initialize" && getParamsProtocolVersion(request)) return null;
   const requestedVersions = getRequestedProtocolVersions(httpRequest, request);
   const unsupportedVersion = requestedVersions.find((version) => !isSupportedProtocolVersion(version));
 
@@ -365,8 +373,14 @@ async function recordMcpInitialize(httpRequest: Request, request: JsonRpcRequest
 }
 
 export async function handleMcpRequest(httpRequest: Request, body: JsonRpcRequest, baseUrl: string) {
-  if (body.jsonrpc !== "2.0" || typeof body.method !== "string") {
-    return errorJson(body.id, -32600, "Invalid JSON-RPC request", 400);
+  const response = await dispatchMcpRequest(httpRequest, body, baseUrl);
+  await recordProtocolObservation(httpRequest, body, response, MCP_SUPPORTED_PROTOCOL_VERSIONS);
+  return response;
+}
+
+async function dispatchMcpRequest(httpRequest: Request, body: JsonRpcRequest, baseUrl: string) {
+  if (!body || Array.isArray(body) || body.jsonrpc !== "2.0" || typeof body.method !== "string") {
+    return errorJson(body?.id, -32600, "Invalid JSON-RPC request", 400);
   }
 
   if (body.id === undefined) {

@@ -8,8 +8,9 @@ import {
   oauthAttempts,
   validationSessions
 } from "@/lib/db/schema";
-import type { McpClient, OAuthAttempt } from "@/lib/db/schema";
+import type { McpClient, OAuthAttempt, McpProtocolObservation } from "@/lib/db/schema";
 import { hostedClientKeyFromMetadataUrl, hostedClientPlatformFromSignal } from "@/lib/oauth/client-platform";
+import { getProtocolObservations } from "@/lib/mcp/observations";
 
 const SUPPRESSED_CLIENT_KEYS = new Set([
   "github-copilot",
@@ -203,31 +204,51 @@ function observedEvidence(
 }
 
 export async function getClientsWithLatestSignals() {
-  const clients = (await db.select().from(mcpClients).orderBy(mcpClients.name))
-    .filter((client) => !isSuppressedClientKey(client.id));
-  const attempts = await db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt));
-  const results = await db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt));
+  const [storedClients, attempts, results, observations] = await Promise.all([
+    db.select().from(mcpClients).orderBy(mcpClients.name),
+    db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt)),
+    db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt)),
+    getProtocolObservations()
+  ]);
+  const clients = storedClients.filter((client) => !isSuppressedClientKey(client.id));
   const observedClients = syntheticClientsFromAttempts(promotableClientAttempts(attempts, results), results, clients);
 
   return [...clients, ...observedClients].map((client) => ({
     ...client,
-    ...observedSignalsForClient(client, attempts, results)
+    ...observedSignalsForClient(client, attempts, results),
+    ...protocolSignalsForClient(client, observations)
   }));
 }
 
 export async function getClientDetail(id: string) {
   if (isSuppressedClientKey(id)) return null;
-  const [client] = await db.select().from(mcpClients).where(eq(mcpClients.id, id)).limit(1);
-
-  const attempts = await db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt));
-  const results = await db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt));
+  const [[client], attempts, results, observations] = await Promise.all([
+    db.select().from(mcpClients).where(eq(mcpClients.id, id)).limit(1),
+    db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt)),
+    db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt)),
+    getProtocolObservations()
+  ]);
   const resolvedClient = client ?? syntheticClientsFromAttempts(promotableClientAttempts(attempts, results), results, []).find((item) => item.id === id);
   if (!resolvedClient) return null;
   const signals = observedSignalsForClient(resolvedClient, attempts, results);
 
   return {
     client: resolvedClient,
-    ...signals
+    ...signals,
+    ...protocolSignalsForClient(resolvedClient, observations)
+  };
+}
+
+function protocolSignalsForClient(client: McpClient, observations: McpProtocolObservation[]) {
+  // Protocol identity is self-reported. The shared diagnostic bearer token does
+  // not prove that these requests belong to any particular OAuth session.
+  const names = new Set([client.id, client.name].map(canonicalClientKey).filter(Boolean));
+  const protocolHistory = observations.filter((row) => (
+    row.clientName && names.has(canonicalClientKey(row.clientName))
+  ));
+  return {
+    protocolHistory,
+    highestObservedProtocol: protocolHistory.find((row) => row.outcome === "negotiated" || row.outcome === "accepted") ?? null
   };
 }
 

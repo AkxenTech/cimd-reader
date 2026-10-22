@@ -4,6 +4,11 @@ import { join } from "node:path";
 import { client } from "../lib/db";
 
 async function main() {
+  if (process.env.VERCEL === "1" && (
+    !process.env.TURSO_DATABASE_URL?.startsWith("libsql://") || !process.env.TURSO_AUTH_TOKEN
+  )) {
+    throw new Error("Vercel migrations require TURSO_DATABASE_URL and TURSO_AUTH_TOKEN");
+  }
   const dir = join(process.cwd(), "drizzle");
   const statements = readdirSync(dir)
     .filter((file) => file.endsWith(".sql"))
