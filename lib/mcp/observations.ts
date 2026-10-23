@@ -4,6 +4,7 @@ import { desc, sql } from "drizzle-orm";
 import { db } from "@/lib/db";
 import { mcpProtocolObservations, type McpProtocolObservation } from "@/lib/db/schema";
 import { clientSignalFromUserAgent } from "@/lib/oauth/client-signal";
+import { protocolObservationStatus } from "@/lib/mcp/observation-status";
 
 function object(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -91,5 +92,5 @@ export function compareProtocolObservations(left: McpProtocolObservation, right:
 
 export async function getProtocolObservations() {
   const rows = await db.select().from(mcpProtocolObservations).orderBy(desc(mcpProtocolObservations.lastSeenAt));
-  return rows.sort(compareProtocolObservations);
+  return rows.sort(compareProtocolObservations).map((row) => ({ ...row, ...protocolObservationStatus(row) }));
 }

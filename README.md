@@ -128,6 +128,8 @@ Authenticated `/mcp` requests record legacy `initialize` exchanges, modern `serv
 
 The history distinguishes a successful initialization from a server counter-offer, discovery, an accepted request, and a rejected request. Legacy clients proposing an unsupported revision receive a supported legacy counter-offer. Modern requests with unsupported versions receive an error listing supported revisions. Counter-offers and discovery alone are not counted as evidence of client usage on dashboard cards.
 
+Protocol acceptance and method outcomes are reported separately, including for historical observations. An unsupported method such as `resources/list` returns a JSON-RPC `-32601` error over HTTP 200, preserving the live session and the accepted protocol version. The server advertises tools; resources and prompts are optional capabilities that it does not advertise. HTTP 404 is reserved for missing/expired sessions rather than ordinary RPC method failures.
+
 Identity comes from initialize `clientInfo`, modern `_meta` client information, or the user agent as a fallback. Unidentified traffic remains visible in the protocol history. Identity is self-reported: the shared diagnostic bearer token cannot associate MCP traffic with a particular OAuth session. This history records observed versions, not every version a client may support. Existing initialize logs did not retain server responses and are not backfilled as negotiated versions; new structured history starts after migration and deployment.
 
 See the [modern versioning rules](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning) and [legacy initialization rules](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle).

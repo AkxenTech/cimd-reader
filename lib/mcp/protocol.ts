@@ -341,7 +341,7 @@ async function handleToolCall(
     return toolResult(id, protocolVersion, [{ type: "text", text: JSON.stringify(sessions, null, 2) }], { sessions });
   }
 
-  return errorJson(id, -32602, `Unknown tool '${name}'`, 400);
+  return errorJson(id, -32602, `Unknown tool '${name}'`, 200);
 }
 
 async function recordMcpInitialize(httpRequest: Request, request: JsonRpcRequest) {
@@ -438,5 +438,7 @@ async function dispatchMcpRequest(httpRequest: Request, body: JsonRpcRequest, ba
     return handleToolCall(body.id, baseUrl, body.params, protocolVersion);
   }
 
-  return errorJson(body.id, -32601, `Method not found: ${body.method}`, 404);
+  // This is an RPC error on a live connection. HTTP 404 tells legacy MCP
+  // clients that their session expired and forces them to initialize again.
+  return errorJson(body.id, -32601, `Method not found: ${body.method}`, 200);
 }

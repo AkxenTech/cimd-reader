@@ -92,6 +92,48 @@ async function main() {
     assert.equal(mismatchRow?.headerVersion, MCP_PROTOCOL_VERSION);
     assert.equal(mismatchRow?.metaVersion, "2025-11-25");
     assert.equal(mismatchRow?.selectedVersion, null);
+    assert.equal(mismatchRow?.protocolStatus, "rejected");
+    assert.equal(failed?.protocolStatus, "rejected");
+
+    const initializedBefore = (await getProtocolObservations())
+      .filter((row) => row.phase === "initialize")
+      .reduce((sum, row) => sum + row.observationCount, 0);
+    const initializeCapabilities = first.payload.result.capabilities;
+    assert.ok(initializeCapabilities.tools);
+    assert.equal(initializeCapabilities.resources, undefined);
+    const legacyHeaders = {
+      "mcp-protocol-version": "2025-06-18",
+      "mcp-session-id": "cimd-reader-legacy-session",
+      "user-agent": "Codex-CLI/1.0.0"
+    };
+    const missingResources = await invoke({ jsonrpc: "2.0", id: 41, method: "resources/list", params: {} }, legacyHeaders);
+    assert.equal(missingResources.response.status, 200, "Unsupported RPC methods must not signal session expiry via HTTP 404");
+    assert.equal(missingResources.payload.error.code, -32601);
+    const missingRow = (await getProtocolObservations()).find((row) => row.errorCode === -32601);
+    assert.equal(missingRow?.protocolVersion, "2025-06-18");
+    assert.equal(missingRow?.protocolStatus, "accepted");
+    assert.equal(missingRow?.requestStatus, "unsupported_method");
+    assert.ok(missingRow?.errorMessage?.includes("resources/list"));
+    const subsequentTools = await invoke({ jsonrpc: "2.0", id: 42, method: "tools/list", params: {} }, legacyHeaders);
+    assert.equal(subsequentTools.response.status, 200);
+    assert.ok(Array.isArray(subsequentTools.payload.result.tools));
+    assert.equal((await getProtocolObservations()).filter((row) => row.phase === "initialize")
+      .reduce((sum, row) => sum + row.observationCount, 0), initializedBefore);
+    const unknownTool = await invoke({ jsonrpc: "2.0", id: 43, method: "tools/call", params: { name: "missing_tool", arguments: {} } }, legacyHeaders);
+    assert.equal(unknownTool.response.status, 200);
+    assert.equal(unknownTool.payload.error.code, -32602);
+    const invalidParamsRow = (await getProtocolObservations()).find((row) => row.errorCode === -32602);
+    assert.equal(invalidParamsRow?.protocolStatus, "accepted");
+    assert.equal(invalidParamsRow?.requestStatus, "invalid_params");
+    const modernUnsupported = modern(MCP_PROTOCOL_VERSION, "resources/list");
+    const unsupportedMethod = await invoke(modernUnsupported.body, modernUnsupported.headers);
+    assert.equal(unsupportedMethod.response.status, 200);
+    assert.equal(unsupportedMethod.payload.error.code, -32601);
+    const { protocolObservationStatus } = await import("../lib/mcp/observation-status");
+    assert.ok(missingRow);
+    assert.deepEqual(protocolObservationStatus({ ...missingRow, outcome: "rejected", selectedVersion: null }), {
+      protocolVersion: "2025-06-18", protocolStatus: "accepted", requestStatus: "unsupported_method"
+    }, "Historical method errors must not appear as protocol rejections");
 
     const noIdentity = { jsonrpc: "2.0", id: 8, method: "tools/list", params: {} };
     await invoke(noIdentity, { "mcp-protocol-version": "2025-11-25" });
@@ -112,7 +154,7 @@ async function main() {
     const detail = await getClientDetail("codex-cli");
     assert.equal(detail?.highestObservedProtocol?.selectedVersion, MCP_PROTOCOL_VERSION);
     assert.equal(detail?.highestObservedProtocol?.outcome, "accepted");
-    assert.ok(detail?.protocolHistory.every((row) => row.clientName === "Codex CLI"));
+    assert.ok(detail?.protocolHistory.every((row) => row.clientName?.toLowerCase().replace(/[-_]/g, " ") === "codex cli"));
     assert.equal(detail?.observedBehavior, "unknown", "Protocol traffic must not imply CIMD support");
 
     migrate();
@@ -121,7 +163,7 @@ async function main() {
     const payload = await api.json();
     assert.equal(payload.observations.length, (await getProtocolObservations()).length);
     assert.equal(api.status, 200);
-    console.log("Protocol history smoke passed: legacy/modern, counter-offers, errors, concurrent deduplication, ordering, identity, API, and migration persistence.");
+    console.log("Protocol history smoke passed: legacy/modern, counter-offers, version vs method errors, session continuity, concurrent deduplication, ordering, identity, API, and migration persistence.");
   } finally {
     client.close();
     rmSync(directory, { recursive: true, force: true });
