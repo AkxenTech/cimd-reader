@@ -5,18 +5,9 @@ import { oauthAttempts } from "@/lib/db/schema";
 import { ensureSession, upsertDcrRegistration } from "@/lib/db/queries";
 import { clientSignalFromPayload } from "@/lib/oauth/client-signal";
 import { requestBodyToRecord } from "@/lib/oauth/parse";
+import { getBaseUrl } from "@/lib/oauth/base-url";
 
 export const runtime = "nodejs";
-
-function slugClientId(value: string) {
-  const slug = value
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")
-    .slice(0, 48);
-
-  return `dcr-${slug || "client"}`;
-}
 
 function withLoopbackAliases(redirectUris: string[]) {
   const values = new Set(redirectUris);
@@ -59,7 +50,8 @@ export async function POST(request: NextRequest) {
     : ["authorization_code", "refresh_token"];
   const scope = typeof rawRecord.scope === "string" ? rawRecord.scope : "cimd:read";
   const clientName = typeof rawRecord.client_name === "string" ? rawRecord.client_name : "DCR test client";
-  const registeredClientId = slugClientId(clientName);
+  const registeredClientId = `dcr-${crypto.randomUUID()}`;
+  const issuer = getBaseUrl(request);
   const userAgent = request.headers.get("user-agent");
   const clientSignal = clientSignalFromPayload(rawRecord, userAgent);
 
@@ -69,11 +61,13 @@ export async function POST(request: NextRequest) {
     clientName,
     redirectUris: registeredRedirectUris,
     rawBody: rawRecord,
-    sessionId
+    sessionId,
+    issuer
   });
   await db.insert(oauthAttempts).values({
     id: crypto.randomUUID(),
     sessionId,
+    issuer,
     createdAt: new Date().toISOString(),
     path: "/register",
     method: request.method,

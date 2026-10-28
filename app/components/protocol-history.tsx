@@ -91,7 +91,7 @@ export function ProtocolHistoryNote() {
     <p className="mt-2 max-w-4xl text-sm text-slate-600">
       Newest protocol versions first, then most recently seen. Repeated client releases and version outcomes are counted together.
       Protocol acceptance and request outcomes are shown separately; an unsupported method does not reject an accepted version.
-      A counter-offer or discovery response does not prove the client used that version. Client names are self-reported and are not linked to individual OAuth sessions.
+      A counter-offer or discovery response does not prove the client used that version. New observations from token-linked sessions are associated with the exact OAuth identity; older observations without an identity link remain on the global protocol history.
     </p>
   );
 }

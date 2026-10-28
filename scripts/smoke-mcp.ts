@@ -236,7 +236,8 @@ async function main() {
   }) as never);
   const devinRegistration = await devinRegisterResponse.json() as Record<string, unknown>;
   assert.equal(devinRegisterResponse.status, 200);
-  assert.equal(devinRegistration.client_id, "dcr-devin-cli");
+  const devinClientId = String(devinRegistration.client_id);
+  assert.match(devinClientId, /^dcr-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
   assert.deepEqual(devinRegistration.redirect_uris, [
     "http://127.0.0.1:8765/auth/callback",
     "http://localhost:8765/auth/callback"
@@ -245,7 +246,7 @@ async function main() {
   const devinAuthorizeSession = crypto.randomUUID();
   await authorizeGet(new Request(`${baseUrl}/authorize?${new URLSearchParams({
     session_id: devinAuthorizeSession,
-    client_id: "dcr-devin-cli",
+    client_id: devinClientId,
     redirect_uri: "http://localhost:8765/auth/callback",
     response_type: "code",
     scope: "cimd:read"
@@ -253,7 +254,7 @@ async function main() {
   const [devinAuthorizeAttempt] = await db
     .select()
     .from(oauthAttempts)
-    .where(and(eq(oauthAttempts.sessionId, devinAuthorizeSession), eq(oauthAttempts.clientId, "dcr-devin-cli")))
+    .where(and(eq(oauthAttempts.sessionId, devinAuthorizeSession), eq(oauthAttempts.clientId, devinClientId)))
     .limit(1);
   assert.equal(devinAuthorizeAttempt.classification, "dcr");
   assert.equal(devinAuthorizeAttempt.clientName, "Devin CLI");
@@ -335,7 +336,6 @@ async function main() {
   }) as never);
   const completeRegistration = await completeRegisterResponse.json() as Record<string, unknown>;
   const completeClientId = String(completeRegistration.client_id);
-  const completeCardId = completeClientId.replace(/^dcr-/, "");
   const completeLoopbackRedirect = completeRedirect.replace("127.0.0.1", "localhost");
   const completeAuthorizeSession = crypto.randomUUID();
   await authorizeGet(new Request(`${baseUrl}/authorize?${new URLSearchParams({
@@ -357,7 +357,7 @@ async function main() {
   }) as never);
   assert.equal(completeTokenResponse.status, 200);
   const clientsAfterToken = await getClientsWithLatestSignals();
-  const completeClient = clientsAfterToken.find((client) => client.id === completeCardId);
+  const completeClient = clientsAfterToken.find((client) => client.identities?.some((identity) => identity.clientId === completeClientId));
   assert.equal(completeClient?.name, completeName);
   assert.equal(completeClient?.observedBehavior, "dcr");
 

@@ -310,22 +310,29 @@ async function main() {
       assert.equal(after?.highestObservedProtocol?.selectedVersion, "2025-11-25");
       assert.equal(after?.latestValidation?.id, validation.id);
     });
-    await check("invalid CIMD persists failure and never promotes even after token", async () => {
+    await check("invalid CIMD remains visible as failed identity evidence after token", async () => {
       const url = "https://cimd.example/invalid.json";
       const { session } = await authorizeFixture(url, "CIMD Regression Invalid", false);
       await exchange(url);
       const timeline = await getSessionTimeline(session);
       assert.equal(timeline?.results[0].metadataValid, 0);
       assert.match(timeline?.results[0].validationErrors ?? "", /does not match/);
-      assert.equal((await getClientsWithLatestSignals()).some((item) => item.metadataUrl === url), false);
+      const failedIdentity = (await getClientsWithLatestSignals()).find((item) => item.metadataUrl === url);
+      assert.equal(failedIdentity?.observedBehavior, "failed");
+      assert.equal(failedIdentity?.attribution?.status, "unresolved");
+      assert.equal(failedIdentity?.latestValidation?.metadataValid, 0);
     });
-    await check("failed revalidation does not overwrite prior valid evidence", async () => {
+    await check("latest failed revalidation is separate from historical CIMD success", async () => {
       const url = "https://cimd.example/complete.json";
       await authorizeFixture(url, "CIMD Regression Complete", false);
       await exchange(url);
       const card = (await getClientsWithLatestSignals()).find((item) => item.metadataUrl === url);
-      assert.equal(card?.latestValidation?.metadataValid, 1);
-      assert.equal(card?.observedBehavior, "cimd");
+      assert.equal(card?.latestValidation?.metadataValid, 0);
+      assert.equal(card?.latestSuccessfulCimdValidation?.metadataValid, 1);
+      assert.equal(card?.observedBehavior, "failed");
+      const detail = card ? await getClientDetail(card.id) : null;
+      assert.equal(detail?.latestValidation?.metadataValid, 0);
+      assert.equal(detail?.latestSuccessfulCimdValidation?.metadataValid, 1);
     });
     await check("hosted connectors remain distinct OAuth clients", async () => {
       for (const id of ["regression-one", "regression-two"]) {
@@ -334,17 +341,22 @@ async function main() {
         await exchange(url);
       }
       const cards = await getClientsWithLatestSignals();
+      const connectorCards = [];
       for (const id of ["regression-one", "regression-two"]) {
-        const card = cards.find((item) => item.id === `vercel-connector-${id}`);
+        const url = `https://connect.vercel.com/connectors/${id}`;
+        const card = cards.find((item) => item.identities?.some((identity: { clientId: string }) => identity.clientId === url));
+        connectorCards.push(card);
         assert.equal(card?.observedBehavior, "cimd");
-        assert.equal(card?.metadataUrl, `https://connect.vercel.com/connectors/${id}`);
+        assert.equal(card?.attribution?.status, "unresolved");
+        assert.equal(card?.identities?.[0]?.clientId, url);
         assert.equal(card?.latestValidation?.metadataUrl, card?.metadataUrl);
-        assert.equal(card?.latestCimdAttempt?.clientId, card?.metadataUrl);
-        const detail = await getClientDetail(`vercel-connector-${id}`);
-        assert.equal(detail?.latestValidation?.metadataUrl, card?.metadataUrl);
+        assert.equal(card?.latestCimdAttempt?.clientId, url);
+        const detail = card ? await getClientDetail(card.id) : null;
+        assert.equal(detail?.latestValidation?.metadataUrl, url);
       }
+      assert.notEqual(connectorCards[0]?.id, connectorCards[1]?.id, "shared reported names do not merge connector URLs");
     });
-    await check("PI DCR never inherits v0 metadata through the api path", async () => {
+    await check("DCR identity never inherits v0 metadata or a name-derived product through the API", async () => {
       const v0Url = "https://v0.app/api/chat/integrations/oauth/client-metadata.json";
       await authorizeFixture(v0Url, "v0");
       await exchange(v0Url);
@@ -353,36 +365,38 @@ async function main() {
         body: JSON.stringify({ client_name: "pi", redirect_uris: [callback], token_endpoint_auth_method: "none" })
       }) as never);
       const registration = await registered.json();
-      assert.equal(registration.client_id, "dcr-pi");
+      const dcrClientId = String(registration.client_id);
+      assert.match(dcrClientId, /^dcr-[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
       for (let connection = 0; connection < 2; connection += 1) {
         const session = crypto.randomUUID();
         await authorize(new Request(`http://localhost:3000/authorize?${new URLSearchParams({
-          client_id: "dcr-pi", redirect_uri: callback, session_id: session
+          client_id: dcrClientId, redirect_uri: callback, session_id: session
         })}`) as never);
-        await exchange("dcr-pi");
+        await exchange(dcrClientId);
       }
       const cards = await getClientsWithLatestSignals();
-      const pi = cards.find((item) => item.id === "pi");
+      const pi = cards.find((item) => item.identities?.some((identity: { clientId: string }) => identity.clientId === dcrClientId));
       const v0 = cards.find((item) => item.id === "v0");
       assert.ok(pi);
       assert.equal(pi.observedBehavior, "dcr");
+      assert.equal(pi.attribution?.status, "unresolved");
       assert.equal(pi.metadataUrl, null);
       assert.equal(pi.sourceUrl, null);
       assert.equal(pi.latestCimdAttempt, null);
       assert.equal(pi.latestValidation, null);
-      assert.equal(pi.statusAttempt?.clientId, "dcr-pi");
+      assert.equal(pi.statusAttempt?.clientId, dcrClientId);
       assert.ok(!pi.observedEvidence.includes(v0Url));
       assert.equal(v0?.observedBehavior, "cimd");
       assert.equal(v0?.latestValidation?.metadataUrl, v0Url);
-      const detail = await getClientDetail("pi");
+      const detail = await getClientDetail(pi.id);
       assert.equal(detail?.observedBehavior, "dcr");
       assert.equal(detail?.latestValidation, null);
       const api = await (await clientsApi()).json();
-      const apiPi = api.clients.find((item: { id: string }) => item.id === "pi");
+      const apiPi = api.clients.find((item: { id: string }) => item.id === pi.id);
       assert.equal(apiPi.observedBehavior, "dcr");
       assert.equal(apiPi.latestValidation, null);
     });
-    await check("known client aliases still match metadata names", async () => {
+    await check("self-reported metadata names alone do not bind curated products", async () => {
       const now = new Date().toISOString();
       for (const [id, name, metadataName] of [
         ["codex-cli", "Codex CLI", "Codex"],
@@ -394,9 +408,12 @@ async function main() {
         const url = `https://clients.example/${id}/metadata.json`;
         await authorizeFixture(url, metadataName);
         await exchange(url);
+        const identity = (await getClientsWithLatestSignals()).find((item) => item.identities?.some((row: { clientId: string }) => row.clientId === url));
+        assert.ok(identity, name);
+        assert.equal(identity.attribution?.status, "unresolved", name);
+        assert.notEqual(identity.id, id, "the test fixture should not be used as the identity card key");
         const detail = await getClientDetail(id);
-        assert.equal(detail?.latestValidation?.metadataUrl, url, name);
-        assert.equal(detail?.observedBehavior, "cimd", name);
+        assert.equal(detail?.latestValidation, null, name);
       }
     });
     await check("a vendor name cannot attribute another client's metadata", async () => {
@@ -411,8 +428,8 @@ async function main() {
       for (const id of ["vendor-one", "vendor-two"]) {
         assert.equal(cards.find((item) => item.id === id)?.latestValidation, null);
       }
-      const actualClient = cards.find((item) => item.id === "shared-vendor");
-      assert.equal(actualClient?.metadataUrl, url);
+      const unresolvedIdentity = cards.find((item) => item.identities?.some((identity: { clientId: string }) => identity.clientId === url));
+      assert.equal(unresolvedIdentity?.attribution?.status, "unresolved");
     });
     for (const failure of ["dns", "malformed", "null-json", "ssrf"] as const) {
       await check(`authorization persists ${failure} failure without crashing`, async () => {
@@ -431,7 +448,9 @@ async function main() {
         assert.equal(timeline?.results.length, 1);
         assert.equal(timeline?.results[0].metadataValid, 0);
         assert.ok(JSON.parse(timeline!.results[0].validationErrors!).length > 0);
-        assert.equal((await getClientsWithLatestSignals()).some((item) => item.metadataUrl === url), false);
+        const identity = (await getClientsWithLatestSignals()).find((item) => item.identities?.some((row: { clientId: string }) => row.clientId === url));
+        assert.equal(identity?.observedBehavior, "failed");
+        assert.equal(identity?.latestValidation?.metadataValid, 0);
       });
     }
   } finally {

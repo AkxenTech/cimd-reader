@@ -1,4 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { db } from "@/lib/db";
 import {
@@ -6,21 +6,15 @@ import {
   mcpClients,
   oauthClientRegistrations,
   oauthAttempts,
-  validationSessions
+  validationSessions,
+  clientIdentityMappings
 } from "@/lib/db/schema";
-import type { McpClient, OAuthAttempt, McpProtocolObservation } from "@/lib/db/schema";
-import { hostedClientKeyFromMetadataUrl, hostedClientPlatformFromSignal } from "@/lib/oauth/client-platform";
+import type { OAuthAttempt } from "@/lib/db/schema";
+import { hostedClientPlatformFromSignal } from "@/lib/oauth/client-platform";
 import { getProtocolObservations } from "@/lib/mcp/observations";
-
-const SUPPRESSED_CLIENT_KEYS = new Set([
-  "github-copilot",
-  "windsurf",
-  "example-app",
-  "example-client",
-  "test-client",
-  "test-client-id",
-  "dcr-test-client-id"
-]);
+import { resolveClientCatalog, type ResolvedClient } from "@/lib/clients/resolver";
+import { sameDiagnosticRedirect } from "@/lib/oauth/redirect-uri";
+import { oauthIdentityId } from "@/lib/clients/identity";
 
 function parseBodyJson(value: string | null | undefined) {
   if (!value) return null;
@@ -31,122 +25,14 @@ function parseBodyJson(value: string | null | undefined) {
   }
 }
 
-function normalize(value: string | null | undefined) {
-  return (value ?? "").toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function clientAliases(client: McpClient) {
-  const aliases = new Set([client.id, client.name]);
-
-  if (client.id === "codex-cli") {
-    aliases.add("codex");
-    aliases.add("codex cli");
-    aliases.add("openai codex");
-    aliases.add("openai codex cli");
-  }
-
-  if (client.id === "claude-code") {
-    aliases.add("claude");
-    aliases.add("claude code");
-  }
-
-  if (client.id === "visual-studio-code") {
-    aliases.add("vs code");
-    aliases.add("vscode");
-    aliases.add("vscode dev");
-  }
-
-  if (client.id === "mcpjam") {
-    aliases.add("mcpjam inspector");
-    aliases.add("mcp inspector");
-  }
-
-  return [...aliases].map(normalize).filter(Boolean);
-}
-
-function canonicalClientKey(value: string | null | undefined) {
-  const normalized = normalize(value);
-  if (!normalized) return null;
-
-  if (normalized.includes("claude")) return "claude-code";
-  if (normalized.includes("codex") || normalized.includes("openai codex")) return "codex-cli";
-  if (normalized.includes("mcpjam") || normalized.includes("mcp jam")) return "mcpjam-inspector";
-  if (normalized.includes("visual studio code") || normalized.includes("vs code") || normalized === "vscode" || normalized.includes("vscode dev")) return "vscode";
-  if (normalized.includes("github copilot") || normalized === "copilot") return "github-copilot";
-
-  return normalized.replace(/\s+/g, "-");
-}
-
-function displayClientType(value: string | null | undefined) {
-  const normalized = normalize(value);
-  if (!normalized) return "Unknown client";
-  if (canonicalClientKey(value) === "mcpjam-inspector") return "MCPJam Inspector";
-  if (canonicalClientKey(value) === "codex-cli") return "Codex CLI";
-  if (canonicalClientKey(value) === "claude-code") return "Claude Code";
-  if (canonicalClientKey(value) === "vscode") return "VS Code";
-  if (canonicalClientKey(value) === "github-copilot") return "GitHub Copilot";
-
-  return value?.trim() || "Unknown client";
-}
-
-function isSuppressedClientKey(value: string | null | undefined) {
-  const key = canonicalClientKey(value);
-  if (!key) return false;
-  if (SUPPRESSED_CLIENT_KEYS.has(key)) return true;
-  return key.startsWith("example-") || key.startsWith("test-") || key.includes("-example-") || key.includes("-test-");
-}
-
 function registeredClientName(attempt: OAuthAttempt) {
   const body = parseBodyJson(attempt.rawBodyJson);
   return typeof body?.client_name === "string" ? body.client_name : null;
 }
 
-function validationMetadataName(attempt: OAuthAttempt, results: (typeof cimdValidationResults.$inferSelect)[]) {
-  const result = results.find((item) => item.attemptId === attempt.id);
-  if (!result?.rawMetadataJson) return null;
-
-  try {
-    const metadata = JSON.parse(result.rawMetadataJson) as Record<string, unknown>;
-    return typeof metadata.client_name === "string" ? metadata.client_name : null;
-  } catch {
-    return null;
-  }
-}
-
-function dcrAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient) {
-  if (attempt.path !== "/register") return false;
-  const name = normalize(registeredClientName(attempt));
-  if (!name) return false;
-
-  return clientAliases(client).some((alias) => name === alias);
-}
-
-function cimdAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient, results: (typeof cimdValidationResults.$inferSelect)[]) {
-  if (attempt.classification !== "cimd") return false;
-  // A known metadata URL identifies this OAuth client. Shared display names
-  // must not attach a different connector's validation to it.
-  if (client.metadataUrl) return attempt.clientId === client.metadataUrl;
-  const metadataName = normalize(validationMetadataName(attempt, results));
-  // Names may identify curated clients whose metadata URL is not yet known.
-  // Never search for an alias inside the URL: "pi" also occurs in "/api/".
-  return Boolean(metadataName && clientAliases(client).includes(metadataName));
-}
-
-function directAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient, results: (typeof cimdValidationResults.$inferSelect)[]) {
-  const directIds = [client.id, client.metadataUrl].filter(Boolean);
-  return directIds.includes(attempt.clientId)
-    || attempt.clientId === `dcr-${client.id}`
-    || cimdAttemptMatchesClient(attempt, client, results);
-}
-
 function resultForAttempt(attempt: OAuthAttempt | null, results: (typeof cimdValidationResults.$inferSelect)[]) {
   if (!attempt) return null;
   return results.find((result) => result.attemptId === attempt.id) ?? null;
-}
-
-function hasValidCimdMetadata(attempt: OAuthAttempt, results: (typeof cimdValidationResults.$inferSelect)[]) {
-  if (attempt.classification !== "cimd") return true;
-  return Boolean(resultForAttempt(attempt, results)?.metadataValid);
 }
 
 function observedBehavior(attempt: OAuthAttempt | null) {
@@ -203,207 +89,92 @@ function observedEvidence(
   return `Latest OAuth event was ${attempt.method} ${attempt.path}.`;
 }
 
-export async function getClientsWithLatestSignals() {
-  const [storedClients, attempts, results, observations] = await Promise.all([
+async function clientCatalog() {
+  const [clients, attempts, results, mappings, observations] = await Promise.all([
     db.select().from(mcpClients).orderBy(mcpClients.name),
     db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt)),
     db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt)),
+    db.select().from(clientIdentityMappings),
     getProtocolObservations()
   ]);
-  const clients = storedClients.filter((client) => !isSuppressedClientKey(client.id));
-  const observedClients = syntheticClientsFromAttempts(promotableClientAttempts(attempts, results), results, clients);
+  return { catalog: resolveClientCatalog(clients, attempts, results, mappings), results, observations };
+}
 
-  return [...clients, ...observedClients].map((client) => ({
-    ...client,
-    ...observedSignalsForClient(client, attempts, results),
-    ...protocolSignalsForClient(client, observations)
+export async function getClientsWithLatestSignals() {
+  const { catalog, results, observations } = await clientCatalog();
+  return catalog.entries.filter(entry => !entry.client.isHidden).map(entry => ({
+    ...entry.client, ...observedSignalsForClient(entry, results, observations)
   }));
 }
 
 export async function getClientDetail(id: string) {
-  if (isSuppressedClientKey(id)) return null;
-  const [[client], attempts, results, observations] = await Promise.all([
-    db.select().from(mcpClients).where(eq(mcpClients.id, id)).limit(1),
-    db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt)),
-    db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt)),
-    getProtocolObservations()
-  ]);
-  const resolvedClient = client ?? syntheticClientsFromAttempts(promotableClientAttempts(attempts, results), results, []).find((item) => item.id === id);
-  if (!resolvedClient) return null;
-  const signals = observedSignalsForClient(resolvedClient, attempts, results);
-
-  return {
-    client: resolvedClient,
-    ...signals,
-    ...protocolSignalsForClient(resolvedClient, observations)
-  };
+  const { catalog, results, observations } = await clientCatalog();
+  const entry = catalog.find(id);
+  if (!entry || entry.client.isHidden) return null;
+  return { client: entry.client, ...observedSignalsForClient(entry, results, observations) };
 }
 
-function protocolSignalsForClient(client: McpClient, observations: McpProtocolObservation[]) {
-  // Protocol identity is self-reported. The shared diagnostic bearer token does
-  // not prove that these requests belong to any particular OAuth session.
-  const names = new Set([client.id, client.name].map(canonicalClientKey).filter(Boolean));
-  const protocolHistory = observations.filter((row) => (
-    row.clientName && names.has(canonicalClientKey(row.clientName))
-  ));
-  return {
-    protocolHistory,
-    highestObservedProtocol: protocolHistory.find((row) => row.outcome === "negotiated" || row.outcome === "accepted") ?? null
-  };
-}
-
-function syntheticClientsFromAttempts(
-  attempts: OAuthAttempt[],
+function observedSignalsForClient(
+  entry: ResolvedClient,
   results: (typeof cimdValidationResults.$inferSelect)[],
-  existingClients: McpClient[]
+  observations: Awaited<ReturnType<typeof getProtocolObservations>>
 ) {
-  const existingKeys = new Set(existingClients.flatMap((client) => [
-    client.id,
-    client.metadataUrl,
-    hostedClientKeyFromMetadataUrl(client.metadataUrl),
-    canonicalClientKey(client.id),
-    canonicalClientKey(client.name)
-  ].filter((value): value is string => Boolean(value))));
-  const clients = new Map<string, McpClient>();
-
-  for (const attempt of attempts) {
-    const candidate = clientTypeCandidate(attempt, results);
-    const dcrKey = attempt.clientId?.startsWith("dcr-") ? canonicalClientKey(attempt.clientId.slice(4)) : null;
-    const cimdMetadataUrl = attempt.classification === "cimd" ? attempt.clientId : null;
-    const hostedPlatform = hostedClientPlatformFromSignal({
-      metadataUrl: cimdMetadataUrl,
-      userAgent: attempt.userAgent
-    });
-    const key = hostedClientKeyFromMetadataUrl(cimdMetadataUrl) ?? dcrKey ?? canonicalClientKey(candidate);
-    if (!key || key === "unknown-client" || isSuppressedClientKey(key) || existingKeys.has(key) || clients.has(key)) continue;
-
-    const name = registeredClientName(attempt) ?? attempt.clientName ?? (dcrKey ? titleFromClientKey(key) : displayClientType(candidate));
-    if (name === "Unknown client") continue;
-
-    clients.set(key, {
-      id: key,
-      name,
-      category: hostedPlatform ? "Connector" : normalize(name).includes("cli") ? "CLI" : "Tool",
-      vendor: hostedPlatform?.name ?? null,
-      supportStatus: "unknown",
-      metadataUrl: cimdMetadataUrl,
-      sourceUrl: cimdMetadataUrl,
-      notes: hostedPlatform?.notes ?? "Observed from OAuth traffic.",
-      createdAt: attempt.createdAt,
-      updatedAt: attempt.createdAt
-    });
-  }
-
-  return [...clients.values()].sort((left, right) => left.name.localeCompare(right.name));
-}
-
-function cimdSessionHasValidMetadata(
-  attempts: OAuthAttempt[],
-  results: (typeof cimdValidationResults.$inferSelect)[]
-) {
-  return attempts.some((attempt) => (
-    attempt.classification === "cimd"
-    && Boolean(resultForAttempt(attempt, results)?.metadataValid)
-  ));
-}
-
-function promotableClientAttempts(attempts: OAuthAttempt[], results: (typeof cimdValidationResults.$inferSelect)[]) {
-  const bySession = new Map<string, OAuthAttempt[]>();
-  for (const attempt of attempts) {
-    if (!attempt.sessionId) continue;
-    const sessionAttempts = bySession.get(attempt.sessionId) ?? [];
-    sessionAttempts.push(attempt);
-    bySession.set(attempt.sessionId, sessionAttempts);
-  }
-
-  const promotable = new Set<OAuthAttempt>();
-  for (const sessionAttempts of bySession.values()) {
-    const behavior = sessionBehavior(sessionAttempts);
-    const hasSuccessfulTokenExchange = sessionAttempts.some((attempt) => attempt.path === "/token");
-    const hasAuthorization = sessionAttempts.some((attempt) => attempt.path === "/authorize");
-    if (!hasAuthorization || !hasSuccessfulTokenExchange || (behavior !== "dcr" && behavior !== "cimd")) continue;
-    if (behavior === "cimd" && !cimdSessionHasValidMetadata(sessionAttempts, results)) continue;
-
-    for (const attempt of sessionAttempts) {
-      if (observedBehavior(attempt) === behavior) promotable.add(attempt);
-    }
-  }
-
-  return attempts.filter((attempt) => promotable.has(attempt));
-}
-
-function titleFromClientKey(key: string) {
-  return key
-    .split("-")
-    .filter(Boolean)
-    .map((part) => part.toLowerCase() === "cli" ? "CLI" : `${part.charAt(0).toUpperCase()}${part.slice(1)}`)
-    .join(" ");
-}
-
-function observedSignalsForClient(client: McpClient, attempts: OAuthAttempt[], results: (typeof cimdValidationResults.$inferSelect)[]) {
-  const directlyMatchingAttempts = attempts.filter((attempt) => (
-    (directAttemptMatchesClient(attempt, client, results) || dcrAttemptMatchesClient(attempt, client))
-    && hasValidCimdMetadata(attempt, results)
-  ));
-  const matchingSessionIds = new Set(directlyMatchingAttempts.map((attempt) => attempt.sessionId).filter(Boolean));
-  const invalidCimdSessionIds = new Set(attempts
-    .filter((attempt) => attempt.classification === "cimd" && !hasValidCimdMetadata(attempt, results))
-    .map((attempt) => attempt.sessionId)
-    .filter(Boolean));
-  const matchingAttempts = attempts.filter((attempt) => (
-    (directlyMatchingAttempts.includes(attempt) || (attempt.sessionId && matchingSessionIds.has(attempt.sessionId)))
-    && (!attempt.sessionId || !invalidCimdSessionIds.has(attempt.sessionId))
-  ));
-  const behaviorAttempts = matchingAttempts.filter((attempt) => attempt.path === "/register" || attempt.classification);
+  const matchingAttempts = entry.attempts;
   const latestAttempt = matchingAttempts[0] ?? null;
-  const latestCimdAttempt = matchingAttempts.find((attempt) => attempt.classification === "cimd") ?? null;
-  const statusAttempt = latestCimdAttempt ?? behaviorAttempts[0] ?? latestAttempt;
+  const statusAttempt = matchingAttempts.find(row => row.path === "/authorize")
+    ?? matchingAttempts.find(row => row.path === "/register") ?? latestAttempt;
+  const latestCimdAttempt = matchingAttempts.find(row => row.classification === "cimd") ?? null;
+  const validationIds = new Set(matchingAttempts.map(row => row.id));
+  const validations = results.filter(row => validationIds.has(row.attemptId));
+  const latestValidation = validations[0] ?? null;
   const latestCimdValidation = resultForAttempt(latestCimdAttempt, results);
-  const latestValidation = latestCimdValidation ?? (
-    matchingAttempts.length
-      ? results.find((result) => matchingAttempts.some((attempt) => attempt.id === result.attemptId)) ?? null
-      : null
-  );
-  const behavior = latestCimdAttempt && latestCimdValidation && !latestCimdValidation.metadataValid
-    ? "failed"
-    : latestCimdAttempt
-      ? "cimd"
-      : observedBehavior(statusAttempt);
-
+  const latestSuccessfulCimdValidation = validations.find(row => Boolean(row.metadataValid)) ?? null;
+  const statusValidation = resultForAttempt(statusAttempt, results);
+  const behavior = statusAttempt?.classification === "cimd" && statusValidation && !statusValidation.metadataValid
+    ? "failed" : observedBehavior(statusAttempt);
+  const identityIds = new Set(entry.identities.map(row => row.id));
+  const protocolHistory = observations.filter(row => row.oauthIdentityId && identityIds.has(row.oauthIdentityId));
   return {
-    latestAttempt,
-    statusAttempt,
-    latestCimdAttempt,
-    latestValidation,
-    latestCimdValidation,
+    latestAttempt, statusAttempt, latestCimdAttempt, latestValidation, latestCimdValidation,
+    latestSuccessfulCimdValidation, latestSuccessfulCimdAt: latestSuccessfulCimdValidation?.createdAt ?? null,
     observedBehavior: behavior,
-    observedEvidence: observedEvidence(statusAttempt, client.name, latestCimdValidation),
-    observedAt: latestAttempt?.createdAt ?? latestValidation?.createdAt ?? null
+    observedEvidence: observedEvidence(statusAttempt, entry.client.name, statusValidation),
+    observedAt: statusAttempt?.createdAt ?? latestAttempt?.createdAt ?? null,
+    identities: entry.identities,
+    attribution: entry.attribution,
+    protocolHistory,
+    highestObservedProtocol: protocolHistory.find(row => row.protocolStatus === "negotiated" || row.protocolStatus === "accepted") ?? null
   };
 }
 
 export async function getSessions() {
-  const sessions = await db.select().from(validationSessions).orderBy(desc(validationSessions.createdAt));
-  const attempts = await db
-    .select()
-    .from(oauthAttempts)
-    .orderBy(desc(oauthAttempts.createdAt));
-  const counts = await db
-    .select({ sessionId: oauthAttempts.sessionId, count: sql<number>`count(*)` })
-    .from(oauthAttempts)
-    .groupBy(oauthAttempts.sessionId);
-  const attemptIds = attempts.map((attempt) => attempt.id);
-  const results = attemptIds.length
-    ? await db.select().from(cimdValidationResults).where(inArray(cimdValidationResults.attemptId, attemptIds))
-    : [];
-
-  return sessions.map((session) => ({
-    ...session,
-    attemptCount: Number(counts.find((count) => count.sessionId === session.id)?.count ?? 0),
-    attempts: attempts.filter((attempt) => attempt.sessionId === session.id),
-    latestAttempt: attempts.find((attempt) => attempt.sessionId === session.id) ?? null,
-    ...sessionClientSummary(attempts.filter((attempt) => attempt.sessionId === session.id), results)
-  }));
+  const [sessions, clients, attempts, results, mappings] = await Promise.all([
+    db.select().from(validationSessions).orderBy(desc(validationSessions.createdAt)),
+    db.select().from(mcpClients),
+    db.select().from(oauthAttempts).orderBy(desc(oauthAttempts.createdAt)),
+    db.select().from(cimdValidationResults).orderBy(desc(cimdValidationResults.createdAt)),
+    db.select().from(clientIdentityMappings)
+  ]);
+  const catalog = resolveClientCatalog(clients, attempts, results, mappings);
+  return sessions.map(session => {
+    const events = attempts.filter(row => row.sessionId === session.id);
+    const owners = new Map(events.flatMap(row => {
+      const owner = catalog.forAttempt(row);
+      return owner ? [[owner.client.id, owner] as const] : [];
+    }));
+    const owner = owners.size === 1 ? [...owners.values()][0] : null;
+    const identityIds = new Set(events.filter(row => row.clientId).map(row => oauthIdentityId(row.issuer, row.clientId!)));
+    const identities = [...owners.values()].flatMap(entry => entry.identities)
+      .filter(identity => identityIds.has(identity.id));
+    return {
+      ...session, attemptCount: events.length, attempts: events, latestAttempt: events[0] ?? null,
+      ...sessionClientSummary(events, results),
+      clientKey: owner?.client.id ?? `session-${session.id}`,
+      clientType: owner?.client.name ?? "Unresolved client",
+      identities,
+      attribution: owner?.attribution ?? { status: "unresolved" as const, reason: "Session does not identify one OAuth client." }
+    };
+  });
 }
 
 export function displayClassification(attempt: OAuthAttempt | null) {
@@ -441,64 +212,20 @@ export function clientVersionForAttempt(attempt: OAuthAttempt | null) {
   return attempt?.clientVersion ?? null;
 }
 
-function metadataNameForAttemptId(attemptId: string, results: (typeof cimdValidationResults.$inferSelect)[]) {
-  const result = results.find((item) => item.attemptId === attemptId);
-  if (!result?.rawMetadataJson) return null;
-
-  try {
-    const metadata = JSON.parse(result.rawMetadataJson) as Record<string, unknown>;
-    return typeof metadata.client_name === "string" ? metadata.client_name : null;
-  } catch {
-    return null;
-  }
-}
-
-function clientTypeCandidate(attempt: OAuthAttempt, results: (typeof cimdValidationResults.$inferSelect)[]) {
-  const registeredName = registeredClientName(attempt);
-  const metadataName = metadataNameForAttemptId(attempt.id, results);
-
-  if (attempt.classification === "cimd") {
-    return metadataName ?? attempt.clientName ?? clientTypeForAttempt(attempt);
-  }
-
-  if (attempt.path === "/register") {
-    return registeredName ?? attempt.clientName ?? clientTypeForAttempt(attempt);
-  }
-
-  return attempt.clientName ?? registeredName ?? metadataName ?? clientTypeForAttempt(attempt);
-}
-
 function sessionClientSummary(attempts: OAuthAttempt[], results: (typeof cimdValidationResults.$inferSelect)[]) {
-  const prioritized = [
-    attempts.find((attempt) => attempt.classification === "cimd"),
-    attempts.find((attempt) => attempt.path === "/register"),
-    attempts.find((attempt) => attempt.classification === "mcp"),
-    attempts[0]
-  ].filter((attempt): attempt is OAuthAttempt => Boolean(attempt));
-  const candidate = prioritized.map((attempt) => clientTypeCandidate(attempt, results)).find((value) => normalize(value));
-  const behaviorCounts = attempts.reduce<Record<string, number>>((counts, attempt) => {
-    const behavior = observedBehavior(attempt);
+  const latestAuth = attempts.find(row => row.path === "/authorize");
+  const validation = resultForAttempt(latestAuth ?? null, results);
+  const behaviorCounts = attempts.reduce<Record<string, number>>((counts, row) => {
+    const behavior = observedBehavior(row);
     counts[behavior] = (counts[behavior] ?? 0) + 1;
     return counts;
   }, {});
-  const versions = [...new Set(attempts.map((attempt) => attempt.clientVersion).filter((version): version is string => Boolean(version)))].sort();
-
   return {
-    clientKey: canonicalClientKey(candidate) ?? "unknown-client",
-    clientType: displayClientType(candidate),
-    clientVersions: versions,
-    sessionBehavior: sessionBehavior(attempts),
+    clientVersions: [...new Set(attempts.map(row => row.clientVersion).filter((version): version is string => Boolean(version)))].sort(),
+    sessionBehavior: latestAuth?.classification === "cimd" && validation && !validation.metadataValid
+      ? "failed" : observedBehavior(latestAuth ?? attempts[0] ?? null),
     behaviorCounts
   };
-}
-
-function sessionBehavior(attempts: OAuthAttempt[]) {
-  const behaviors = attempts.map(observedBehavior);
-  if (behaviors.includes("cimd")) return "cimd";
-  if (behaviors.includes("dcr")) return "dcr";
-  if (behaviors.includes("static")) return "static";
-  if (behaviors.includes("mcp")) return "mcp";
-  return behaviors.find((behavior) => behavior !== "unknown") ?? "unknown";
 }
 
 export async function getSessionTimeline(id: string) {
@@ -532,12 +259,14 @@ export async function upsertDcrRegistration(input: {
   redirectUris: string[];
   rawBody: Record<string, unknown>;
   sessionId: string | null;
+  issuer?: string | null;
 }) {
   const now = new Date().toISOString();
   await db
     .insert(oauthClientRegistrations)
     .values({
       clientId: input.clientId,
+      issuer: input.issuer ?? null,
       clientName: input.clientName,
       redirectUrisJson: JSON.stringify(input.redirectUris),
       rawBodyJson: JSON.stringify(input.rawBody),
@@ -557,23 +286,27 @@ export async function upsertDcrRegistration(input: {
     });
 }
 
-export async function getDcrRegistration(clientId: string | null) {
+export async function getDcrRegistration(clientId: string | null, issuer?: string | null) {
   if (!clientId) return null;
-  const [registration] = await db
+  const registrations = await db
     .select()
     .from(oauthClientRegistrations)
     .where(eq(oauthClientRegistrations.clientId, clientId))
     .limit(1);
 
-  return registration ?? null;
+  return registrations.find(row => issuer === undefined || row.issuer === issuer)
+    ?? registrations.find(row => row.issuer === null) ?? null;
 }
 
-export async function hasDcrAttemptForSession(sessionId: string | null) {
-  if (!sessionId) return false;
+export async function hasDcrAttemptForSession(input: { sessionId: string | null; clientId: string | null; issuer: string }) {
+  if (!input.sessionId || !input.clientId) return false;
   const rows = await db
     .select({ id: oauthAttempts.id })
     .from(oauthAttempts)
-    .where(and(eq(oauthAttempts.sessionId, sessionId), eq(oauthAttempts.path, "/register")))
+    .where(and(
+      eq(oauthAttempts.sessionId, input.sessionId), eq(oauthAttempts.path, "/register"),
+      eq(oauthAttempts.clientId, input.clientId), eq(oauthAttempts.issuer, input.issuer)
+    ))
     .limit(1);
 
   return rows.length > 0;
@@ -585,7 +318,7 @@ export async function hasDcrRegistration(clientId: string | null) {
 
 function tokenMatchesAuthorizeAttempt(token: { clientId: string | null; redirectUri: string | null }, attempt: OAuthAttempt) {
   const clientMatches = Boolean(token.clientId && attempt.clientId === token.clientId);
-  const redirectMatches = Boolean(token.redirectUri && redirectUrisMatch(token.redirectUri, attempt.redirectUri));
+  const redirectMatches = Boolean(token.redirectUri && sameDiagnosticRedirect(token.redirectUri, attempt.redirectUri));
 
   if (token.clientId && token.redirectUri) return clientMatches && redirectMatches;
   if (token.clientId) return clientMatches;
@@ -593,32 +326,12 @@ function tokenMatchesAuthorizeAttempt(token: { clientId: string | null; redirect
   return false;
 }
 
-function redirectUrisMatch(left: string | null, right: string | null) {
-  if (!left || !right) return false;
-  if (left === right) return true;
-
-  try {
-    const leftUrl = new URL(left);
-    const rightUrl = new URL(right);
-    const leftLoopback = leftUrl.hostname === "localhost" || leftUrl.hostname === "127.0.0.1";
-    const rightLoopback = rightUrl.hostname === "localhost" || rightUrl.hostname === "127.0.0.1";
-
-    if (!leftLoopback || !rightLoopback) return false;
-
-    return leftUrl.protocol === rightUrl.protocol
-      && leftUrl.port === rightUrl.port
-      && leftUrl.pathname === rightUrl.pathname
-      && leftUrl.search === rightUrl.search;
-  } catch {
-    return false;
-  }
-}
-
 export async function findRecentAuthorizeSessionForToken(input: {
   clientId: string | null;
   redirectUri: string | null;
   createdAt?: string;
   maxAgeMs?: number;
+  issuer?: string | null;
 }) {
   const referenceTime = input.createdAt ? Date.parse(input.createdAt) : Date.now();
   const maxAgeMs = input.maxAgeMs ?? 10 * 60 * 1000;
@@ -632,7 +345,8 @@ export async function findRecentAuthorizeSessionForToken(input: {
     .orderBy(desc(oauthAttempts.createdAt))
     .limit(200);
 
-  const match = candidates.find((attempt) => {
+  const matches = candidates.filter((attempt) => {
+    if (input.issuer !== undefined && attempt.issuer !== input.issuer) return false;
     if (!attempt.sessionId) return false;
     const attemptTime = Date.parse(attempt.createdAt);
     if (!Number.isFinite(attemptTime)) return false;
@@ -641,5 +355,5 @@ export async function findRecentAuthorizeSessionForToken(input: {
     return tokenMatchesAuthorizeAttempt(input, attempt);
   });
 
-  return match?.sessionId ?? null;
+  return matches.length === 1 ? matches[0].sessionId : null;
 }

@@ -107,30 +107,52 @@ VS Code `mcp.json`:
 }
 ```
 
-The authorization server advertises CIMD support. `/authorize` logs the request, classifies the client behavior, validates HTTPS URL `client_id` values as CIMD metadata documents, stores the result, then redirects to `redirect_uri` with a fake authorization code. `/token` returns a fake bearer token. `/register` logs DCR attempts and returns a fake client registration.
+The authorization server advertises CIMD support. `/authorize` logs the request, classifies the client behavior, validates HTTPS URL `client_id` values as CIMD metadata documents, stores the result, then redirects to `redirect_uri` with a unique diagnostic authorization code. `/token` returns a unique diagnostic bearer token. `/register` logs DCR attempts and returns a new opaque client ID on every registration. These endpoints remain diagnostic stubs; they are not a production OAuth authorization server.
 
 ## Dashboard
 
-- `/` shows MCP client cards with claimed support, observed behavior, and latest CIMD validation.
+- `/` shows product and unmapped OAuth identity cards with claimed support, latest observed behavior, and latest CIMD validation. The latest failure is shown separately from the last successful metadata document.
 - `/clients/[id]` shows known metadata, latest OAuth attempt, raw metadata JSON, validation errors, and warnings.
 - `/sessions` lists validation sessions.
 - `/sessions/[id]` shows an OAuth request timeline.
 - `/api/clients` returns client data as JSON.
 - `/api/sessions` returns session data as JSON.
 - `/protocols` lists unique MCP protocol observations across clients, newest protocol revision first, then most recently observed.
-- `/api/protocols` returns the same history as JSON. Client cards and detail pages include matching protocol observations.
+- `/api/protocols` returns the same history as JSON. Client cards and detail pages include protocol observations linked by diagnostic bearer tokens.
+
+## OAuth Identity and Product Attribution
+
+An OAuth identity is the exact `(issuer, client_id)` pair. Client ID URLs are not normalized, and reported names are display information. Distinct registrations and metadata URLs remain separate even when they report the same name. Legacy rows without an issuer retain `null`; the migration does not invent historical issuers or product ownership.
+
+Cards, details, sessions, and protocol history use the same identity resolver. Product attribution requires an explicit identity mapping, a unique configured metadata URL, or an explicitly recognized metadata endpoint/namespace. Ambiguous configured URLs remain unresolved. Unknown identities appear as unmapped cards once an authorization attempt and token exchange share the same identity and session, including failed CIMD validations. Incomplete attempts remain visible in sessions. Legacy name-based detail URLs work only when the label identifies one completed identity; they never merge evidence.
+
+Use an identity's `identities[].id` from `/api/clients` or `/api/sessions` to manage an explicit mapping in the configured database:
+
+```bash
+# Bind an identity to an existing product, or provide a name to create one.
+npm run clients:manage -- bind <identity-id> <product-id> "Product name"
+npm run clients:manage -- unbind <identity-id>
+
+# Visibility is explicit; names and substrings never silently filter cards.
+npm run clients:manage -- visibility <product-id> hidden "Reason for hiding"
+npm run clients:manage -- visibility <product-id> visible
+```
+
+Hiding a product hides its card and detail page while preserving raw session and protocol evidence. To hide an unmapped identity, first bind it to a product. Seeding does not reset visibility or explicit identity mappings.
 
 ## MCP Protocol History
 
-Run `npm run db:migrate` before serving the updated app locally. Vercel runs migrations before each build using the deployment's database credentials. Missing Vercel database configuration fails the build. Migration `0004` adds a persistent protocol observation table without modifying OAuth results.
+Run `npm run db:migrate` before serving the updated app locally. Vercel runs migrations before each build using the deployment's database credentials. Missing Vercel database configuration fails the build. Migration `0004` adds persistent protocol history; `0005` adds issuer fields, identity mappings, explicit visibility, and diagnostic code/token correlation. Existing OAuth and protocol rows are preserved. Migrations can be replayed.
 
-Authenticated `/mcp` requests record legacy `initialize` exchanges, modern `server/discover` probes, and explicit per-request protocol versions. Each distinct reported client name, application release, identity source, negotiation phase, version evidence, outcome, and server-supported version set has one row. Repeated observations atomically increment a count and update first/last seen timestamps. Different releases and version outcomes remain separate, including failures.
+Authenticated `/mcp` requests record legacy `initialize` exchanges, modern `server/discover` probes, and explicit per-request protocol versions. Each distinct OAuth identity link, reported client name, application release, identity source, negotiation phase, version evidence, outcome, and server-supported version set has one row. Repeated observations atomically increment a count and update first/last seen timestamps. Different releases and version outcomes remain separate, including failures.
 
 The history distinguishes a successful initialization from a server counter-offer, discovery, an accepted request, and a rejected request. Legacy clients proposing an unsupported revision receive a supported legacy counter-offer. Modern requests with unsupported versions receive an error listing supported revisions. Counter-offers and discovery alone are not counted as evidence of client usage on dashboard cards.
 
 Protocol acceptance and method outcomes are reported separately, including for historical observations. An unsupported method such as `resources/list` returns a JSON-RPC `-32601` error over HTTP 200, preserving the live session and the accepted protocol version. The server advertises tools; resources and prompts are optional capabilities that it does not advertise. HTTP 404 is reserved for missing/expired sessions rather than ordinary RPC method failures.
 
-Identity comes from initialize `clientInfo`, modern `_meta` client information, or the user agent as a fallback. Unidentified traffic remains visible in the protocol history. Identity is self-reported: the shared diagnostic bearer token cannot associate MCP traffic with a particular OAuth session. This history records observed versions, not every version a client may support. Existing initialize logs did not retain server responses and are not backfilled as negotiated versions; new structured history starts after migration and deployment.
+Reported names and releases come from initialize `clientInfo`, modern `_meta` client information, or the user agent as a fallback. Product ownership comes from the OAuth identity linked to the unique diagnostic bearer token, even if MCP reports a different name. Tokens are stored only as hashes and expire after one hour. The legacy shared `test-access-token` remains accepted for compatibility, but its observations and historical rows without an identity link remain global; they are never assigned to a product using a name match. Unique authorization codes correlate simultaneous exchanges to their exact sessions; legacy token requests use session inference only when one matching authorization exists.
+
+This history records observed versions, not every version a client may support. Existing initialize logs did not retain server responses and are not backfilled as negotiated versions; new structured history starts after migration and deployment.
 
 See the [modern versioning rules](https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning) and [legacy initialization rules](https://modelcontextprotocol.io/specification/2025-11-25/basic/lifecycle).
 
@@ -157,7 +179,9 @@ Run `npm run test:cimd` for the isolated CIMD regression suite. It creates and r
 
 Coverage includes required fields and malformed JSON, exact client ID matching, OAuth defaults, native loopback and custom-scheme redirects, secret/private-key rejection, IPv4/IPv6 SSRF cases, DNS rebinding prevention, HTTP failures and redirects, byte limits, DNS/header/body timeouts, persisted validation results, token correlation, client cards/details/API, hosted connectors, and coexistence with protocol history. `npm run verify:local` also runs this suite.
 
-The validator targets this diagnostic server's public/native authorization-code profile (`token_endpoint_auth_method: none`), not every possible OAuth grant or confidential-client authentication method. Metadata fetching follows the [CIMD discovery requirements](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document-02#section-5). `/authorize` and `/token` remain diagnostic stubs: invalid CIMD evidence is logged and excluded from successful client promotion, while the fake authorization flow continues.
+The validator targets this diagnostic server's public/native authorization-code profile (`token_endpoint_auth_method: none`), not every possible OAuth grant or confidential-client authentication method. Metadata fetching follows the [CIMD discovery requirements](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document-02#section-5). Invalid CIMD evidence is logged and shown as a failed check while the diagnostic authorization flow continues. A visible card is not proof of a successful CIMD validation.
+
+`npm run test:identity` covers identity separation, opaque DCR IDs, legacy registrations, concurrent code correlation, consistent card/detail/session attribution, and token-linked protocol history. `npm run verify:local` runs migration, build, MCP smoke tests, protocol smoke tests, and both regression suites. GitHub Actions runs the same checks using temporary databases on pushes and pull requests.
 
 ## Seed Data
 
@@ -168,5 +192,3 @@ The seed script creates placeholder cards for:
 - MCPJam.
 - Cursor.
 - Codex CLI.
-- GitHub Copilot.
-- Windsurf.

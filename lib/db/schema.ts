@@ -9,6 +9,8 @@ export const mcpClients = sqliteTable("mcp_clients", {
   metadataUrl: text("metadata_url"),
   sourceUrl: text("source_url"),
   notes: text("notes"),
+  isHidden: integer("is_hidden").notNull().default(0),
+  hiddenReason: text("hidden_reason"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull()
 });
@@ -18,6 +20,7 @@ export const mcpProtocolObservations = sqliteTable("mcp_protocol_observations", 
   clientName: text("client_name"),
   clientVersion: text("client_version"),
   identitySource: text("identity_source").notNull(),
+  oauthIdentityId: text("oauth_identity_id"),
   phase: text("phase").notNull(),
   requestedVersion: text("requested_version"),
   headerVersion: text("header_version"),
@@ -44,6 +47,7 @@ export const validationSessions = sqliteTable("validation_sessions", {
 export const oauthAttempts = sqliteTable("oauth_attempts", {
   id: text("id").primaryKey(),
   sessionId: text("session_id"),
+  issuer: text("issuer"),
   createdAt: text("created_at").notNull(),
   path: text("path").notNull(),
   method: text("method").notNull(),
@@ -65,12 +69,35 @@ export const oauthAttempts = sqliteTable("oauth_attempts", {
 
 export const oauthClientRegistrations = sqliteTable("oauth_client_registrations", {
   clientId: text("client_id").primaryKey(),
+  issuer: text("issuer"),
   clientName: text("client_name"),
   redirectUrisJson: text("redirect_uris_json").notNull(),
   rawBodyJson: text("raw_body_json").notNull(),
   lastSessionId: text("last_session_id"),
   createdAt: text("created_at").notNull(),
   updatedAt: text("updated_at").notNull()
+});
+
+export const clientIdentityMappings = sqliteTable("client_identity_mappings", {
+  identityId: text("identity_id").primaryKey(),
+  productId: text("product_id").notNull().references(() => mcpClients.id),
+  createdAt: text("created_at").notNull()
+});
+
+export const diagnosticConnections = sqliteTable("diagnostic_connections", {
+  tokenHash: text("token_hash").primaryKey(),
+  identityId: text("identity_id"),
+  sessionId: text("session_id").notNull(),
+  expiresAt: text("expires_at").notNull()
+});
+
+export const diagnosticAuthorizationCodes = sqliteTable("diagnostic_authorization_codes", {
+  codeHash: text("code_hash").primaryKey(),
+  issuer: text("issuer").notNull(),
+  clientId: text("client_id"),
+  redirectUri: text("redirect_uri"),
+  sessionId: text("session_id").notNull(),
+  createdAt: text("created_at").notNull()
 });
 
 export const cimdValidationResults = sqliteTable("cimd_validation_results", {

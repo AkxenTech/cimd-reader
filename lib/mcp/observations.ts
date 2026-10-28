@@ -21,7 +21,8 @@ export async function recordProtocolObservation(
   httpRequest: Request,
   body: unknown,
   response: Response,
-  supportedVersions: readonly string[]
+  supportedVersions: readonly string[],
+  oauthIdentityId: string | null = null
 ) {
   const request = object(body);
   if (request.jsonrpc !== "2.0" || typeof request.method !== "string" || request.id === undefined) return;
@@ -59,12 +60,12 @@ export async function recordProtocolObservation(
   const id = createHash("sha256").update(JSON.stringify([
     clientName?.toLowerCase(), clientVersion, identitySource, phase,
     requestedVersion, headerVersion, paramsVersion, metaVersion, selectedVersion,
-    outcome, errorCode, serverVersionsJson
+    outcome, errorCode, serverVersionsJson, oauthIdentityId
   ])).digest("hex");
   const now = new Date().toISOString();
 
   await db.insert(mcpProtocolObservations).values({
-    id, clientName, clientVersion, identitySource, phase,
+    id, clientName, clientVersion, identitySource, oauthIdentityId, phase,
     requestedVersion, headerVersion, paramsVersion, metaVersion, selectedVersion,
     outcome, errorCode, errorMessage, serverVersionsJson,
     firstSeenAt: now, lastSeenAt: now, observationCount: 1

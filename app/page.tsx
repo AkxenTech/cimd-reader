@@ -40,6 +40,28 @@ function StatusIcon({ status }: { status: string }) {
   return <CircleHelp className="h-4 w-4" />;
 }
 
+function behaviorLabel(status: string) {
+  switch (status) {
+    case "cimd": return "CIMD metadata URL";
+    case "dcr": return "Dynamic registration";
+    case "static": return "Static client ID";
+    case "failed": return "CIMD validation failed";
+    case "not_supported": return "Not supported";
+    case "unknown": return "Not observed";
+    default: return status;
+  }
+}
+
+function registrationLabel(method: string) {
+  switch (method) {
+    case "cimd": return "CIMD metadata URL";
+    case "dcr": return "Dynamic registration";
+    case "static": return "Static client ID";
+    case "unknown": return "Not recorded";
+    default: return method;
+  }
+}
+
 function ListValue({ value }: { value: unknown }) {
   if (Array.isArray(value)) return <span className="wrap-anywhere">{value.join(", ")}</span>;
   if (typeof value === "string") return <span className="wrap-anywhere">{value}</span>;
@@ -122,10 +144,12 @@ codex mcp login cimd_reader`}</pre>
 
       <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
         {clients.map((client) => {
-          const metadata = parseRawMetadata(client.latestValidation?.rawMetadataJson) ?? {};
-          const displayName = typeof metadata.client_name === "string" ? metadata.client_name : client.name;
+          const successfulValidation = client.latestSuccessfulCimdValidation;
+          const metadata = parseRawMetadata(successfulValidation?.rawMetadataJson) ?? {};
+          const reportedName = client.identities.find((identity) => identity.displayName)?.displayName
+            ?? (typeof metadata.client_name === "string" ? metadata.client_name : "Not reported");
           const logo = typeof metadata.logo_uri === "string" ? metadata.logo_uri : null;
-          const metadataUrl = client.metadataUrl ?? client.latestValidation?.metadataUrl ?? (client.latestAttempt?.classification === "cimd" ? client.latestAttempt.clientId : null);
+          const metadataUrl = successfulValidation?.metadataUrl ?? null;
           const platform = hostedClientPlatformFromSignal({
             metadataUrl,
             userAgent: client.latestAttempt?.userAgent
@@ -143,27 +167,57 @@ codex mcp login cimd_reader`}</pre>
                     {logo ? <img src={logo} alt="" className="h-7 w-7 object-contain" /> : <RadioTower className="h-5 w-5 text-slate-500" />}
                   </div>
                   <div className="min-w-0">
-                    <h2 className="truncate text-lg font-semibold text-ink">{client.name}</h2>
+                    <h2 className={`text-lg font-semibold text-ink ${client.attribution.status === "mapped" ? "truncate" : "wrap-anywhere"}`}>{client.attribution.status === "mapped" ? client.name : `Unmapped · reported as ${reportedName}`}</h2>
                     <p className="wrap-anywhere text-sm text-slate-500">
-                      {client.category ?? "Tool"}
+                      {client.attribution.status === "mapped" ? client.category ?? "Tool" : "OAuth client identity"}
                       {platform ? <span> · {platform.name}</span> : null}
                     </p>
                   </div>
                 </div>
                 <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${statusClasses(client.observedBehavior)}`}>
                   <StatusIcon status={client.observedBehavior} />
-                  {client.observedBehavior}
+                  {behaviorLabel(client.observedBehavior)}
                 </span>
               </div>
 
               <dl className="mt-5 grid gap-3 text-sm">
                 <div className="min-w-0">
+                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Product attribution</dt>
+                  <dd className="wrap-anywhere mt-1 text-slate-800">
+                    {client.attribution.status === "mapped" ? client.name : "No product match"}
+                    <span className="block mt-1 text-xs text-slate-500">{client.attribution.reason}</span>
+                  </dd>
+                </div>
+                <div className="min-w-0">
+                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">OAuth client identity</dt>
+                  <dd className="mt-1 space-y-2">
+                    {client.identities.map((identity) => (
+                      <div key={identity.id} className="wrap-anywhere rounded-md bg-slate-50 p-2 text-xs text-slate-700">
+                        <div className="font-mono">{identity.clientId}</div>
+                        <div>Issuer: {identity.issuer ?? "Not recorded"} · Registration: {registrationLabel(identity.registrationMethod)}</div>
+                        {identity.displayName ? <div>Reported name: {identity.displayName}</div> : null}
+                      </div>
+                    ))}
+                  </dd>
+                </div>
+                <div className="min-w-0">
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Observed result</dt>
                   <dd className="wrap-anywhere mt-1 text-slate-800">{client.observedEvidence}</dd>
                 </div>
                 <div className="min-w-0">
+                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Latest CIMD check</dt>
+                  <dd className="wrap-anywhere mt-1 text-slate-800">
+                    {client.latestValidation ? (
+                      <span className={client.latestValidation.metadataValid ? "text-emerald-700" : "text-red-700"}>
+                        {client.latestValidation.metadataValid ? "Passed" : "Failed"} · {client.latestValidation.createdAt}
+                      </span>
+                    ) : "No check recorded"}
+                  </dd>
+                  {successfulValidation ? <dd className="mt-1 text-xs text-slate-500">Last successful CIMD check: {client.latestSuccessfulCimdAt ?? successfulValidation.createdAt}</dd> : null}
+                </div>
+                <div className="min-w-0">
                   <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Highest observed MCP version</dt>
-                  <dd className="wrap-anywhere mt-1 font-mono text-sm text-slate-800">{client.highestObservedProtocol?.selectedVersion ?? "Not observed"}</dd>
+                  <dd className="wrap-anywhere mt-1 font-mono text-sm text-slate-800">{client.highestObservedProtocol?.protocolVersion ?? "Not observed"}</dd>
                   {client.highestObservedProtocol ? (
                     <dd className="mt-1 text-xs text-slate-500">Client {client.highestObservedProtocol.clientVersion ?? "release unknown"} · {client.protocolHistory.length} distinct version observations</dd>
                   ) : null}
@@ -190,12 +244,12 @@ codex mcp login cimd_reader`}</pre>
                 </div>
                 <div className="grid grid-cols-2 gap-3">
                   <div className="min-w-0">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Metadata name</dt>
-                    <dd className="wrap-anywhere mt-1 text-slate-800">{displayName}</dd>
+                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Reported name</dt>
+                    <dd className="wrap-anywhere mt-1 text-slate-800">{reportedName}</dd>
                   </div>
                   <div className="min-w-0">
                     <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Observed behavior</dt>
-                    <dd className="wrap-anywhere mt-1 text-slate-800">{client.observedBehavior}</dd>
+                    <dd className="wrap-anywhere mt-1 text-slate-800">{behaviorLabel(client.observedBehavior)}</dd>
                   </div>
                 </div>
                 {platform ? (
@@ -207,7 +261,7 @@ codex mcp login cimd_reader`}</pre>
                   </div>
                 ) : null}
                 <div className="min-w-0">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Metadata URL</dt>
+                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Last successful CIMD metadata URL</dt>
                   <dd className="wrap-anywhere mt-1 font-mono text-xs text-slate-700">{metadataUrl ?? "Unknown"}</dd>
                 </div>
                 <div className="min-w-0">
@@ -250,16 +304,7 @@ codex mcp login cimd_reader`}</pre>
               </dl>
 
               <div className="wrap-anywhere mt-auto border-t border-line pt-4 text-sm text-slate-600">
-                Last observed:{" "}
-                {client.observedAt ? (
-                  <span className="text-slate-800">{client.observedAt}</span>
-                ) : client.latestValidation ? (
-                  <span className={client.latestValidation.metadataValid ? "text-emerald-700" : "text-red-700"}>
-                    {client.latestValidation.metadataValid ? "pass" : "fail"} at {client.latestValidation.createdAt}
-                  </span>
-                ) : (
-                  <span>not observed</span>
-                )}
+                Latest OAuth behavior observed: {client.observedAt ?? "not observed"}
               </div>
             </Link>
           );

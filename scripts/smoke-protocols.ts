@@ -152,9 +152,9 @@ async function main() {
       createdAt: new Date().toISOString(), updatedAt: new Date().toISOString()
     });
     const detail = await getClientDetail("codex-cli");
-    assert.equal(detail?.highestObservedProtocol?.selectedVersion, MCP_PROTOCOL_VERSION);
-    assert.equal(detail?.highestObservedProtocol?.outcome, "accepted");
-    assert.ok(detail?.protocolHistory.every((row) => row.clientName?.toLowerCase().replace(/[-_]/g, " ") === "codex cli"));
+    assert.equal(detail?.highestObservedProtocol, null, "the legacy fixed bearer is not linked to a Codex OAuth identity");
+    assert.deepEqual(detail?.protocolHistory, [], "clientInfo labels alone do not assign global observations to a product");
+    assert.ok(rows.some((row) => row.clientName === "Codex CLI"), "unlinked observations remain available in global protocol history");
     assert.equal(detail?.observedBehavior, "unknown", "Protocol traffic must not imply CIMD support");
 
     migrate();

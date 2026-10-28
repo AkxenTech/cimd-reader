@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
     return Response.json({ error: "invalid_origin" }, { status: 403 });
   }
 
-  if (!hasValidBearerToken(request)) {
+  if (!await hasValidBearerToken(request)) {
     return unauthorizedResponse(baseUrl);
   }
 

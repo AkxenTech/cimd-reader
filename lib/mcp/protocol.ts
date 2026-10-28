@@ -4,6 +4,7 @@ import { oauthAttempts } from "@/lib/db/schema";
 import { GITHUB_HANDLE, GITHUB_URL } from "@/lib/site";
 import { clientSignalFromUserAgent } from "@/lib/oauth/client-signal";
 import { recordProtocolObservation } from "@/lib/mcp/observations";
+import { diagnosticConnection } from "@/lib/oauth/diagnostic-connection";
 
 export const MCP_PROTOCOL_VERSION = "2026-07-28";
 export const MCP_COMPAT_PROTOCOL_VERSION = "2025-11-25";
@@ -112,10 +113,10 @@ export function unauthorizedResponse(baseUrl: string, error?: string) {
   });
 }
 
-export function hasValidBearerToken(request: Request) {
+export async function hasValidBearerToken(request: Request) {
   const header = request.headers.get("authorization") ?? "";
   const [scheme, token] = header.split(/\s+/, 2);
-  return scheme?.toLowerCase() === "bearer" && token === MCP_ACCESS_TOKEN;
+  return scheme?.toLowerCase() === "bearer" && (token === MCP_ACCESS_TOKEN || Boolean(await diagnosticConnection(request)));
 }
 
 function jsonRpcError(id: JsonRpcId | undefined, code: number, message: string, data?: unknown) {
@@ -374,7 +375,8 @@ async function recordMcpInitialize(httpRequest: Request, request: JsonRpcRequest
 
 export async function handleMcpRequest(httpRequest: Request, body: JsonRpcRequest, baseUrl: string) {
   const response = await dispatchMcpRequest(httpRequest, body, baseUrl);
-  await recordProtocolObservation(httpRequest, body, response, MCP_SUPPORTED_PROTOCOL_VERSIONS);
+  const connection = await diagnosticConnection(httpRequest);
+  await recordProtocolObservation(httpRequest, body, response, MCP_SUPPORTED_PROTOCOL_VERSIONS, connection?.identityId ?? null);
   return response;
 }
 

@@ -1,0 +1,32 @@
+name: Verify
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Build and run local regression suites
+        run: |
+          set -eu
+          db_dir="$(mktemp -d)"
+          trap 'rm -rf "$db_dir"' EXIT
+          export TURSO_DATABASE_URL="file:$db_dir/verify.db"
+          unset TURSO_AUTH_TOKEN || true
+          npx tsx scripts/migrate.ts
+          npm run build
+          npm run smoke:mcp
+          npm run smoke:protocols
+          npm run test:cimd
+          npm run test:identity
