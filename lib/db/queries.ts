@@ -36,7 +36,7 @@ function normalize(value: string | null | undefined) {
 }
 
 function clientAliases(client: McpClient) {
-  const aliases = new Set([client.id, client.name, client.vendor ?? ""]);
+  const aliases = new Set([client.id, client.name]);
 
   if (client.id === "codex-cli") {
     aliases.add("codex");
@@ -123,13 +123,13 @@ function dcrAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient) {
 
 function cimdAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient, results: (typeof cimdValidationResults.$inferSelect)[]) {
   if (attempt.classification !== "cimd") return false;
-  const normalizedClientId = normalize(attempt.clientId);
+  // A known metadata URL identifies this OAuth client. Shared display names
+  // must not attach a different connector's validation to it.
+  if (client.metadataUrl) return attempt.clientId === client.metadataUrl;
   const metadataName = normalize(validationMetadataName(attempt, results));
-
-  return clientAliases(client).some((alias) => (
-    normalizedClientId.includes(alias)
-    || Boolean(metadataName && metadataName === alias)
-  ));
+  // Names may identify curated clients whose metadata URL is not yet known.
+  // Never search for an alias inside the URL: "pi" also occurs in "/api/".
+  return Boolean(metadataName && clientAliases(client).includes(metadataName));
 }
 
 function directAttemptMatchesClient(attempt: OAuthAttempt, client: McpClient, results: (typeof cimdValidationResults.$inferSelect)[]) {
@@ -262,8 +262,7 @@ function syntheticClientsFromAttempts(
     client.metadataUrl,
     hostedClientKeyFromMetadataUrl(client.metadataUrl),
     canonicalClientKey(client.id),
-    canonicalClientKey(client.name),
-    canonicalClientKey(client.vendor)
+    canonicalClientKey(client.name)
   ].filter((value): value is string => Boolean(value))));
   const clients = new Map<string, McpClient>();
 

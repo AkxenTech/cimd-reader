@@ -90,10 +90,11 @@ async function main() {
   const { validateCimdDocument } = await import("../lib/oauth/cimd-validator");
   const { classifyAuthorizeRequest } = await import("../lib/oauth/classify");
   const { db, client } = await import("../lib/db");
-  const { cimdValidationResults, oauthAttempts } = await import("../lib/db/schema");
+  const { cimdValidationResults, oauthAttempts, mcpClients } = await import("../lib/db/schema");
   const { eq } = await import("drizzle-orm");
   const { GET: authorize } = await import("../app/authorize/route");
   const { POST: token } = await import("../app/token/route");
+  const { POST: register } = await import("../app/register/route");
   const { POST: mcp } = await import("../app/mcp/route");
   const { GET: clientsApi } = await import("../app/api/clients/route");
   const { getClientsWithLatestSignals, getClientDetail, getSessionTimeline } = await import("../lib/db/queries");
@@ -337,7 +338,81 @@ async function main() {
         const card = cards.find((item) => item.id === `vercel-connector-${id}`);
         assert.equal(card?.observedBehavior, "cimd");
         assert.equal(card?.metadataUrl, `https://connect.vercel.com/connectors/${id}`);
+        assert.equal(card?.latestValidation?.metadataUrl, card?.metadataUrl);
+        assert.equal(card?.latestCimdAttempt?.clientId, card?.metadataUrl);
+        const detail = await getClientDetail(`vercel-connector-${id}`);
+        assert.equal(detail?.latestValidation?.metadataUrl, card?.metadataUrl);
       }
+    });
+    await check("PI DCR never inherits v0 metadata through the api path", async () => {
+      const v0Url = "https://v0.app/api/chat/integrations/oauth/client-metadata.json";
+      await authorizeFixture(v0Url, "v0");
+      await exchange(v0Url);
+      const registered = await register(new Request("http://localhost:3000/register", {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ client_name: "pi", redirect_uris: [callback], token_endpoint_auth_method: "none" })
+      }) as never);
+      const registration = await registered.json();
+      assert.equal(registration.client_id, "dcr-pi");
+      for (let connection = 0; connection < 2; connection += 1) {
+        const session = crypto.randomUUID();
+        await authorize(new Request(`http://localhost:3000/authorize?${new URLSearchParams({
+          client_id: "dcr-pi", redirect_uri: callback, session_id: session
+        })}`) as never);
+        await exchange("dcr-pi");
+      }
+      const cards = await getClientsWithLatestSignals();
+      const pi = cards.find((item) => item.id === "pi");
+      const v0 = cards.find((item) => item.id === "v0");
+      assert.ok(pi);
+      assert.equal(pi.observedBehavior, "dcr");
+      assert.equal(pi.metadataUrl, null);
+      assert.equal(pi.sourceUrl, null);
+      assert.equal(pi.latestCimdAttempt, null);
+      assert.equal(pi.latestValidation, null);
+      assert.equal(pi.statusAttempt?.clientId, "dcr-pi");
+      assert.ok(!pi.observedEvidence.includes(v0Url));
+      assert.equal(v0?.observedBehavior, "cimd");
+      assert.equal(v0?.latestValidation?.metadataUrl, v0Url);
+      const detail = await getClientDetail("pi");
+      assert.equal(detail?.observedBehavior, "dcr");
+      assert.equal(detail?.latestValidation, null);
+      const api = await (await clientsApi()).json();
+      const apiPi = api.clients.find((item: { id: string }) => item.id === "pi");
+      assert.equal(apiPi.observedBehavior, "dcr");
+      assert.equal(apiPi.latestValidation, null);
+    });
+    await check("known client aliases still match metadata names", async () => {
+      const now = new Date().toISOString();
+      for (const [id, name, metadataName] of [
+        ["codex-cli", "Codex CLI", "Codex"],
+        ["visual-studio-code", "Visual Studio Code", "Visual Studio Code"],
+        ["mcpjam", "MCPJam", "MCPJam Inspector"],
+        ["claude-code", "Claude Code", "Claude Code"]
+      ] as const) {
+        await db.insert(mcpClients).values({ id, name, supportStatus: "unknown", createdAt: now, updatedAt: now });
+        const url = `https://clients.example/${id}/metadata.json`;
+        await authorizeFixture(url, metadataName);
+        await exchange(url);
+        const detail = await getClientDetail(id);
+        assert.equal(detail?.latestValidation?.metadataUrl, url, name);
+        assert.equal(detail?.observedBehavior, "cimd", name);
+      }
+    });
+    await check("a vendor name cannot attribute another client's metadata", async () => {
+      const now = new Date().toISOString();
+      for (const id of ["vendor-one", "vendor-two"]) {
+        await db.insert(mcpClients).values({ id, name: id, vendor: "Shared Vendor", supportStatus: "unknown", createdAt: now, updatedAt: now });
+      }
+      const url = "https://vendor.example/client.json";
+      await authorizeFixture(url, "Shared Vendor");
+      await exchange(url);
+      const cards = await getClientsWithLatestSignals();
+      for (const id of ["vendor-one", "vendor-two"]) {
+        assert.equal(cards.find((item) => item.id === id)?.latestValidation, null);
+      }
+      const actualClient = cards.find((item) => item.id === "shared-vendor");
+      assert.equal(actualClient?.metadataUrl, url);
     });
     for (const failure of ["dns", "malformed", "null-json", "ssrf"] as const) {
       await check(`authorization persists ${failure} failure without crashing`, async () => {
