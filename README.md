@@ -111,7 +111,7 @@ The authorization server advertises CIMD support. `/authorize` logs the request,
 
 ## Dashboard
 
-- `/` shows product and unmapped OAuth identity cards with claimed support, latest observed behavior, and latest CIMD validation. The latest failure is shown separately from the last successful metadata document.
+- `/` shows named client cards with latest observed behavior, CIMD validation, and MCP versions. Names reported by new clients remain readable without implying a verified product association. Failed checks without any successful metadata history and unidentified clients are retained in the expandable “Other OAuth observations” section. A known client's latest failure remains on its main card.
 - `/clients/[id]` shows known metadata, latest OAuth attempt, raw metadata JSON, validation errors, and warnings.
 - `/sessions` lists validation sessions.
 - `/sessions/[id]` shows an OAuth request timeline.
@@ -124,7 +124,9 @@ The authorization server advertises CIMD support. `/authorize` logs the request,
 
 An OAuth identity is the exact `(issuer, client_id)` pair. Client ID URLs are not normalized, and reported names are display information. Distinct registrations and metadata URLs remain separate even when they report the same name. Legacy rows without an issuer retain `null`; the migration does not invent historical issuers or product ownership.
 
-Cards, details, sessions, and protocol history use the same identity resolver. Product attribution requires an explicit identity mapping, a unique configured metadata URL, or an explicitly recognized metadata endpoint/namespace. Ambiguous configured URLs remain unresolved. Unknown identities appear as unmapped cards once an authorization attempt and token exchange share the same identity and session, including failed CIMD validations. Incomplete attempts remain visible in sessions. Legacy name-based detail URLs work only when the label identifies one completed identity; they never merge evidence.
+Migration `0006` restores reviewed product associations for nine exact historical DCR identities. It runs once and preserves later operator mappings, unbindings, and visibility choices. Current MCPJam, OpenCode, Lovable, and Stella metadata endpoints are recognized by exact URL. A custom metadata document can display its reported name while keeping its distinct identity and unresolved product association.
+
+Cards, details, sessions, and protocol history use the same identity resolver. Product attribution requires an explicit identity mapping, a unique configured metadata URL, or an explicitly recognized metadata endpoint/namespace. Ambiguous configured URLs remain unresolved. New clients can display reported names once an authorization attempt and token exchange share the same identity and session. Failed or unidentified observations remain inspectable in the secondary section, and incomplete attempts remain in sessions. Legacy name-based detail URLs work only when the label identifies one completed identity; they never merge evidence.
 
 Use an identity's `identities[].id` from `/api/clients` or `/api/sessions` to manage an explicit mapping in the configured database:
 
@@ -181,7 +183,9 @@ Coverage includes required fields and malformed JSON, exact client ID matching, 
 
 The validator targets this diagnostic server's public/native authorization-code profile (`token_endpoint_auth_method: none`), not every possible OAuth grant or confidential-client authentication method. Metadata fetching follows the [CIMD discovery requirements](https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document-02#section-5). Invalid CIMD evidence is logged and shown as a failed check while the diagnostic authorization flow continues. A visible card is not proof of a successful CIMD validation.
 
-`npm run test:identity` covers identity separation, opaque DCR IDs, legacy registrations, concurrent code correlation, consistent card/detail/session attribution, and token-linked protocol history. `npm run verify:local` runs migration, build, MCP smoke tests, protocol smoke tests, and both regression suites. GitHub Actions runs the same checks using temporary databases on pushes and pull requests.
+`npm run test:identity` covers identity separation, opaque DCR IDs, legacy registrations, concurrent code correlation, consistent card/detail/session attribution, and token-linked protocol history. `npm run verify:local` runs migration, build, MCP smoke tests, protocol smoke tests, and the regression suites. GitHub Actions runs the same checks using temporary databases on pushes and pull requests.
+
+After `npm run build`, `npm run test:dashboard` checks a production-shaped history with legacy DCR registrations, known metadata endpoints, custom clients, and failed or unidentified observations. It starts the production server on a temporary local port and verifies the rendered cards and detail pages as well as exact identity preservation and one-time migration behavior. It also runs in `verify:local` and CI.
 
 ## Seed Data
 

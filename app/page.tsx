@@ -4,6 +4,7 @@ import { CheckCircle2, CircleHelp, CircleX, ExternalLink, RadioTower } from "luc
 import { getClientsWithLatestSignals } from "@/lib/db/queries";
 import { hostedClientPlatformFromSignal } from "@/lib/oauth/client-platform";
 import { GITHUB_HANDLE, GITHUB_URL } from "@/lib/site";
+import { clientDisplayName, dashboardSections } from "@/lib/clients/presentation";
 
 export const dynamic = "force-dynamic";
 
@@ -52,24 +53,70 @@ function behaviorLabel(status: string) {
   }
 }
 
-function registrationLabel(method: string) {
-  switch (method) {
-    case "cimd": return "CIMD metadata URL";
-    case "dcr": return "Dynamic registration";
-    case "static": return "Static client ID";
-    case "unknown": return "Not recorded";
-    default: return method;
-  }
-}
+type DashboardClient = Awaited<ReturnType<typeof getClientsWithLatestSignals>>[number];
 
-function ListValue({ value }: { value: unknown }) {
-  if (Array.isArray(value)) return <span className="wrap-anywhere">{value.join(", ")}</span>;
-  if (typeof value === "string") return <span className="wrap-anywhere">{value}</span>;
-  return <span className="text-slate-400">Not observed</span>;
+function ClientCard({ client }: { client: DashboardClient }) {
+  const metadata = parseRawMetadata(client.latestSuccessfulCimdValidation?.rawMetadataJson) ?? {};
+  const metadataUrl = client.latestSuccessfulCimdValidation?.metadataUrl ?? null;
+  const platform = hostedClientPlatformFromSignal({
+    metadataUrl: metadataUrl ?? client.identities.find(identity => identity.registrationMethod === "cimd")?.clientId,
+    userAgent: client.latestAttempt?.userAgent
+  });
+  const logo = typeof metadata.logo_uri === "string" ? metadata.logo_uri : null;
+  return (
+    <Link href={`/clients/${client.id}`} data-client-id={client.id}
+      className="group flex min-w-0 flex-col rounded-lg border border-line bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-soft focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-sky-600">
+      <div className="flex min-w-0 items-center gap-3">
+        <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-line bg-slate-50">
+          {logo ? <img src={logo} alt="" className="h-7 w-7 object-contain" /> : <RadioTower className="h-5 w-5 text-slate-500" />}
+        </div>
+        <div className="min-w-0">
+          <h3 className="wrap-anywhere text-lg font-semibold text-ink">{clientDisplayName(client)}</h3>
+          <p className="wrap-anywhere text-sm text-slate-500">{platform ? platform.name : client.category ?? "Tool"}{client.attribution.status === "unresolved" ? " · Client-reported name" : ""}</p>
+        </div>
+      </div>
+      <span className={`mt-4 inline-flex w-fit items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${statusClasses(client.observedBehavior)}`}>
+        <StatusIcon status={client.observedBehavior} />{behaviorLabel(client.observedBehavior)}
+      </span>
+      <p className="wrap-anywhere mt-4 line-clamp-3 text-sm text-slate-600">{client.observedEvidence}</p>
+      <dl className="mt-5 grid grid-cols-2 gap-4 text-sm">
+        <div className="min-w-0">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Latest CIMD check</dt>
+          <dd className={`mt-1 ${client.latestValidation ? client.latestValidation.metadataValid ? "text-emerald-700" : "text-red-700" : "text-slate-600"}`}>
+            {client.latestValidation ? client.latestValidation.metadataValid ? "Passed" : "Failed" : "Not observed"}
+          </dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Highest MCP version</dt>
+          <dd className="wrap-anywhere mt-1 font-mono text-slate-800">{client.highestObservedProtocol?.protocolVersion ?? "Not observed"}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Latest event</dt>
+          <dd className="wrap-anywhere mt-1 text-slate-800">{client.latestAttempt ? `${client.latestAttempt.method} ${client.latestAttempt.path}` : "Not observed"}</dd>
+        </div>
+        <div className="min-w-0">
+          <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Client release</dt>
+          <dd className="wrap-anywhere mt-1 text-slate-800">{client.latestAttempt?.clientVersion ?? "Not observed"}</dd>
+        </div>
+        {metadataUrl ? (
+          <div className="col-span-2 min-w-0">
+            <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Last successful CIMD metadata</dt>
+            <dd className="wrap-anywhere mt-1 font-mono text-xs text-slate-700">{metadataUrl}</dd>
+            {client.observedBehavior === "failed" ? <dd className="mt-1 text-xs text-slate-500">Historical success: {client.latestSuccessfulCimdAt}</dd> : null}
+          </div>
+        ) : null}
+      </dl>
+      <div className="wrap-anywhere mt-auto pt-5 text-xs text-slate-500">
+        <p className="border-t border-line pt-3">Last observed: {client.observedAt ?? "Not observed"}</p>
+        <p className="mt-2 font-medium text-sky-700">View details{client.identities.length > 1 ? ` · ${client.identities.length} OAuth identities` : ""} →</p>
+      </div>
+    </Link>
+  );
 }
 
 export default async function DashboardPage() {
   const clients = await getClientsWithLatestSignals();
+  const { primary, other } = dashboardSections(clients);
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
@@ -142,174 +189,25 @@ codex mcp login cimd_reader`}</pre>
         </div>
       </section>
 
-      <section className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-        {clients.map((client) => {
-          const successfulValidation = client.latestSuccessfulCimdValidation;
-          const metadata = parseRawMetadata(successfulValidation?.rawMetadataJson) ?? {};
-          const reportedName = client.identities.find((identity) => identity.displayName)?.displayName
-            ?? (typeof metadata.client_name === "string" ? metadata.client_name : "Not reported");
-          const logo = typeof metadata.logo_uri === "string" ? metadata.logo_uri : null;
-          const metadataUrl = successfulValidation?.metadataUrl ?? null;
-          const platform = hostedClientPlatformFromSignal({
-            metadataUrl,
-            userAgent: client.latestAttempt?.userAgent
-          });
-
-          return (
-            <Link
-              key={client.id}
-              href={`/clients/${client.id}`}
-              className="group flex min-h-[420px] min-w-0 flex-col overflow-hidden rounded-lg border border-line bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-soft"
-            >
-              <div className="flex min-w-0 items-start justify-between gap-4">
-                <div className="flex min-w-0 items-center gap-3">
-                  <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg border border-line bg-slate-50">
-                    {logo ? <img src={logo} alt="" className="h-7 w-7 object-contain" /> : <RadioTower className="h-5 w-5 text-slate-500" />}
-                  </div>
-                  <div className="min-w-0">
-                    <h2 className={`text-lg font-semibold text-ink ${client.attribution.status === "mapped" ? "truncate" : "wrap-anywhere"}`}>{client.attribution.status === "mapped" ? client.name : `Unmapped · reported as ${reportedName}`}</h2>
-                    <p className="wrap-anywhere text-sm text-slate-500">
-                      {client.attribution.status === "mapped" ? client.category ?? "Tool" : "OAuth client identity"}
-                      {platform ? <span> · {platform.name}</span> : null}
-                    </p>
-                  </div>
-                </div>
-                <span className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2.5 py-1 text-xs font-medium ring-1 ${statusClasses(client.observedBehavior)}`}>
-                  <StatusIcon status={client.observedBehavior} />
-                  {behaviorLabel(client.observedBehavior)}
-                </span>
-              </div>
-
-              <dl className="mt-5 grid gap-3 text-sm">
-                <div className="min-w-0">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Product attribution</dt>
-                  <dd className="wrap-anywhere mt-1 text-slate-800">
-                    {client.attribution.status === "mapped" ? client.name : "No product match"}
-                    <span className="block mt-1 text-xs text-slate-500">{client.attribution.reason}</span>
-                  </dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">OAuth client identity</dt>
-                  <dd className="mt-1 space-y-2">
-                    {client.identities.map((identity) => (
-                      <div key={identity.id} className="wrap-anywhere rounded-md bg-slate-50 p-2 text-xs text-slate-700">
-                        <div className="font-mono">{identity.clientId}</div>
-                        <div>Issuer: {identity.issuer ?? "Not recorded"} · Registration: {registrationLabel(identity.registrationMethod)}</div>
-                        {identity.displayName ? <div>Reported name: {identity.displayName}</div> : null}
-                      </div>
-                    ))}
-                  </dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Observed result</dt>
-                  <dd className="wrap-anywhere mt-1 text-slate-800">{client.observedEvidence}</dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Latest CIMD check</dt>
-                  <dd className="wrap-anywhere mt-1 text-slate-800">
-                    {client.latestValidation ? (
-                      <span className={client.latestValidation.metadataValid ? "text-emerald-700" : "text-red-700"}>
-                        {client.latestValidation.metadataValid ? "Passed" : "Failed"} · {client.latestValidation.createdAt}
-                      </span>
-                    ) : "No check recorded"}
-                  </dd>
-                  {successfulValidation ? <dd className="mt-1 text-xs text-slate-500">Last successful CIMD check: {client.latestSuccessfulCimdAt ?? successfulValidation.createdAt}</dd> : null}
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Highest observed MCP version</dt>
-                  <dd className="wrap-anywhere mt-1 font-mono text-sm text-slate-800">{client.highestObservedProtocol?.protocolVersion ?? "Not observed"}</dd>
-                  {client.highestObservedProtocol ? (
-                    <dd className="mt-1 text-xs text-slate-500">Client {client.highestObservedProtocol.clientVersion ?? "release unknown"} · {client.protocolHistory.length} distinct version observations</dd>
-                  ) : null}
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Latest user agent</dt>
-                  <dd className="wrap-anywhere mt-1 font-mono text-xs text-slate-700">{client.latestAttempt?.userAgent ?? "Not observed"}</dd>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="min-w-0">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Latest event</dt>
-                    <dd className="wrap-anywhere mt-1 text-slate-800">
-                      {client.latestAttempt ? `${client.latestAttempt.method} ${client.latestAttempt.path}` : "Not observed"}
-                    </dd>
-                  </div>
-                  <div className="min-w-0">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Client version</dt>
-                    <dd className="wrap-anywhere mt-1 text-slate-800">{client.latestAttempt?.clientVersion ?? "Unknown"}</dd>
-                  </div>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Claimed status</dt>
-                  <dd className="wrap-anywhere mt-1 text-slate-800">{client.supportStatus.replace("_", " ")}</dd>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="min-w-0">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Reported name</dt>
-                    <dd className="wrap-anywhere mt-1 text-slate-800">{reportedName}</dd>
-                  </div>
-                  <div className="min-w-0">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Observed behavior</dt>
-                    <dd className="wrap-anywhere mt-1 text-slate-800">{behaviorLabel(client.observedBehavior)}</dd>
-                  </div>
-                </div>
-                {platform ? (
-                  <div className="min-w-0">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Host platform</dt>
-                    <dd className="wrap-anywhere mt-1 text-slate-800">
-                      {platform.name} · {platform.identityScope}
-                    </dd>
-                  </div>
-                ) : null}
-                <div className="min-w-0">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Last successful CIMD metadata URL</dt>
-                  <dd className="wrap-anywhere mt-1 font-mono text-xs text-slate-700">{metadataUrl ?? "Unknown"}</dd>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Client URI</dt>
-                  <dd className="wrap-anywhere mt-1 text-slate-800">
-                    {typeof metadata.client_uri === "string" ? (
-                      <span className="inline-flex max-w-full items-center gap-1">
-                        <span className="wrap-anywhere min-w-0">{metadata.client_uri}</span>
-                        <ExternalLink className="h-3 w-3 shrink-0" />
-                      </span>
-                    ) : (
-                      "Not observed"
-                    )}
-                  </dd>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="min-w-0">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Grant types</dt>
-                    <dd className="mt-1 text-slate-800"><ListValue value={metadata.grant_types} /></dd>
-                  </div>
-                  <div className="min-w-0">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Response types</dt>
-                    <dd className="mt-1 text-slate-800"><ListValue value={metadata.response_types} /></dd>
-                  </div>
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="min-w-0">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Token auth</dt>
-                    <dd className="mt-1 text-slate-800"><ListValue value={metadata.token_endpoint_auth_method} /></dd>
-                  </div>
-                  <div className="min-w-0">
-                    <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">App type</dt>
-                    <dd className="mt-1 text-slate-800"><ListValue value={metadata.application_type} /></dd>
-                  </div>
-                </div>
-                <div className="min-w-0">
-                  <dt className="text-xs font-medium uppercase tracking-wide text-slate-500">Redirect URIs</dt>
-                  <dd className="wrap-anywhere mt-1 line-clamp-3 text-slate-800"><ListValue value={metadata.redirect_uris} /></dd>
-                </div>
-              </dl>
-
-              <div className="wrap-anywhere mt-auto border-t border-line pt-4 text-sm text-slate-600">
-                Latest OAuth behavior observed: {client.observedAt ?? "not observed"}
-              </div>
-            </Link>
-          );
-        })}
+      <section aria-labelledby="observed-clients-heading">
+        <div className="mb-4 flex items-center justify-between gap-4">
+          <h2 id="observed-clients-heading" className="text-xl font-semibold text-ink">Clients</h2>
+          <p className="text-sm text-slate-500">{primary.length} clients</p>
+        </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+          {primary.map(client => <ClientCard key={client.id} client={client} />)}
+        </div>
       </section>
+
+      {other.length ? (
+        <details className="mt-7 rounded-lg border border-line bg-white p-5">
+          <summary className="cursor-pointer text-lg font-semibold text-ink">Other OAuth observations ({other.length})</summary>
+          <p className="mt-2 text-sm text-slate-600">Failed metadata checks and unidentified clients are kept here for investigation. All requests remain available in Sessions.</p>
+          <div className="mt-5 grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {other.map(client => <ClientCard key={client.id} client={client} />)}
+          </div>
+        </details>
+      ) : null}
     </main>
   );
 }

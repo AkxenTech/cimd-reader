@@ -31,6 +31,10 @@ function trustedProduct(clientId: string): { id: string; name: string } | null {
   if (clientId === "https://claude.ai/oauth/claude-code-client-metadata") return { id: "claude-code", name: "Claude Code" };
   if (clientId === "https://vscode.dev/oauth/client-metadata.json") return { id: "visual-studio-code", name: "Visual Studio Code" };
   if (clientId === "https://v0.app/api/chat/integrations/oauth/client-metadata.json") return { id: "v0", name: "v0" };
+  if (clientId === "https://www.mcpjam.com/.well-known/oauth/client-metadata.json") return { id: "mcpjam", name: "MCPJam" };
+  if (clientId === "https://opencode.ai/oauth/opencode/client.json") return { id: "opencode", name: "OpenCode" };
+  if (clientId === "https://api.lovable.dev/.well-known/oauth-client") return { id: "lovable", name: "Lovable" };
+  if (clientId === "https://stella.maz.ix.is/.well-known/oauth-client") return { id: "stella", name: "Stella" };
   if (/^https:\/\/chatgpt\.com\/oauth\/codex\/[^/?#]+\/client\.json$/.test(clientId)) return { id: "codex-cli", name: "Codex CLI" };
   if (/^https:\/\/pi\.dev\/oauth\/(?:[^/?#]+\/)?client\.json$/.test(clientId)) return { id: "pi", name: "Pi" };
   return null;

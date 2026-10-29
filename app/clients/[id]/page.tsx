@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { getClientDetail } from "@/lib/db/queries";
 import { hostedClientPlatformFromSignal } from "@/lib/oauth/client-platform";
 import { ProtocolHistory, ProtocolHistoryNote } from "@/app/components/protocol-history";
+import { clientDisplayName } from "@/lib/clients/presentation";
 
 export const dynamic = "force-dynamic";
 
@@ -90,9 +91,9 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
       <section className="mt-5 rounded-lg border border-line bg-white p-6 shadow-sm">
         <div className="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
           <div>
-            <p className="text-sm text-slate-500">{attribution.status === "mapped" ? client.category ?? "Developer tool" : "OAuth client identity"}</p>
-            <h1 className="mt-1 text-3xl font-semibold tracking-tight">{attribution.status === "mapped" ? client.name : `Unmapped · reported as ${reportedName}`}</h1>
-            <p className="wrap-anywhere mt-3 max-w-3xl text-slate-600">{attribution.status === "mapped" ? client.notes ?? "No notes recorded." : "This OAuth identity has not been matched to a product."}</p>
+            <p className="text-sm text-slate-500">{attribution.status === "mapped" ? client.category ?? "Developer tool" : "Client-reported name"}</p>
+            <h1 className="wrap-anywhere mt-1 text-3xl font-semibold tracking-tight">{clientDisplayName({ ...client, identities })}</h1>
+            <p className="wrap-anywhere mt-3 max-w-3xl text-slate-600">{attribution.status === "mapped" ? client.notes ?? "Observed OAuth behavior for this client." : "The name comes from this client's metadata or registration. Exact OAuth identities and validation results are recorded below."}</p>
           </div>
           <span className="w-fit rounded-full bg-slate-100 px-3 py-1 text-sm font-medium text-slate-700 ring-1 ring-slate-200">
             Latest behavior: {behaviorLabel(observedBehavior)}
@@ -103,8 +104,8 @@ export default async function ClientDetailPage({ params }: { params: Promise<{ i
           <Field label="Latest OAuth behavior" value={behaviorLabel(observedBehavior)} />
           <Field label="Behavior evidence" value={observedEvidence} />
           <Field label="Behavior observed at" value={observedAt} />
-          <Field label="Product attribution" value={attribution.status === "mapped" ? client.name : "No product match"} />
-          <Field label="Why this match" value={attribution.reason} />
+          <Field label="Name source" value={attribution.status === "mapped" ? "Known product association" : `Reported by client: ${reportedName}`} />
+          <Field label="Identity association" value={attribution.reason} />
           <Field label="Last successful metadata URL" value={metadataUrl} />
           {platform ? <Field label="Host platform" value={`${platform.name} · ${platform.identityScope}`} /> : null}
           <Field label="Vendor" value={attribution.status === "mapped" ? client.vendor : null} />

@@ -15,8 +15,9 @@
     "smoke:protocols": "tsx scripts/smoke-protocols.ts",
     "test:cimd": "tsx scripts/regression-cimd.ts",
     "test:identity": "tsx scripts/regression-identity.ts",
+    "test:dashboard": "tsx scripts/regression-dashboard.ts",
     "clients:manage": "tsx scripts/manage-clients.ts",
-    "verify:local": "npm run db:migrate && npm run build && npm run smoke:mcp && npm run smoke:protocols && npm run test:cimd && npm run test:identity"
+    "verify:local": "npm run db:migrate && npm run build && npm run smoke:mcp && npm run smoke:protocols && npm run test:cimd && npm run test:identity && npm run test:dashboard"
   },
   "dependencies": {
     "@libsql/client": "^0.15.15",

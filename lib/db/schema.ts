@@ -84,6 +84,11 @@ export const clientIdentityMappings = sqliteTable("client_identity_mappings", {
   createdAt: text("created_at").notNull()
 });
 
+export const dataMigrations = sqliteTable("data_migrations", {
+  id: text("id").primaryKey(),
+  appliedAt: text("applied_at").notNull()
+});
+
 export const diagnosticConnections = sqliteTable("diagnostic_connections", {
   tokenHash: text("token_hash").primaryKey(),
   identityId: text("identity_id"),

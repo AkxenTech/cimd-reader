@@ -30,3 +30,4 @@ jobs:
           npm run smoke:protocols
           npm run test:cimd
           npm run test:identity
+          npm run test:dashboard
