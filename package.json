@@ -38,13 +38,11 @@
     "typescript": "^5.8.3"
   },
   "overrides": {
+    "@esbuild-kit/core-utils": {
+      "esbuild": "^0.25.12"
+    },
     "drizzle-kit": {
-      "esbuild": "^0.25.12",
-      "@esbuild-kit/esm-loader": {
-        "@esbuild-kit/core-utils": {
-          "esbuild": "^0.25.12"
-        }
-      }
+      "esbuild": "^0.25.12"
     },
     "next": {
       "postcss": "8.5.15"
